@@ -30,6 +30,10 @@ function M.api(path, opts, cb)
 
   local sys_opts = { text = true }
   if opts.body ~= nil then
+    -- The body is raw JSON on stdin; GitLab returns HTTP 415 unless we also
+    -- declare the content type (glab does not set it for `--input`).
+    table.insert(cmd, "--header")
+    table.insert(cmd, "Content-Type: application/json")
     table.insert(cmd, "--input")
     table.insert(cmd, "-")
     sys_opts.stdin = vim.json.encode(opts.body)

@@ -69,12 +69,12 @@ With lazy.nvim (https://github.com/folke/lazy.nvim): >lua
         "GlabReviewComment",
       },
       keys = {
-        { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
-        { "<leader>gmo", "<cmd>GlabReviewOverview<cr>",     desc = "glab: overview" },
-        { "<leader>gmt", "<cmd>GlabReviewToggleInline<cr>", desc = "glab: toggle inline" },
-        { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
-        { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
-        { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new inline" },
+        { "<leader>rs", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
+        { "<leader>ro", "<cmd>GlabReviewOverview<cr>",     desc = "glab: overview" },
+        { "<leader>rt", "<cmd>GlabReviewToggleInline<cr>", desc = "glab: toggle inline" },
+        { "<leader>rc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
+        { "<leader>rr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
+        { "<leader>rn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new inline" },
       },
       opts = {},
     }
