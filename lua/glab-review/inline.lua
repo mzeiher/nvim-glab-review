@@ -111,15 +111,53 @@ function M.toggle()
   util.notify("inline comment bodies " .. (show_bodies and "shown" or "hidden"))
 end
 
---- Create a new inline comment on the line under the cursor.
+-- Post a reply to an existing inline thread.
+local function reply_to(iid, discussion, path, line)
+  vim.ui.input({ prompt = ("Reply on %s:%d > "):format(path, line) }, function(input)
+    if not input or vim.trim(input) == "" then
+      return
+    end
+    util.async(function()
+      local err = gitlab.reply(iid, discussion.id, input)
+      if err then
+        util.err("failed to reply: " .. err)
+        return
+      end
+      util.notify("reply added")
+      require("glab-review").reload()
+    end)()
+  end)
+end
+
+-- Create a brand-new inline thread anchored at path:line.
+local function create_new(iid, path, line, diff_refs)
+  if not diff_refs or not diff_refs.head_sha then
+    util.err("MR has no diff refs; cannot anchor an inline comment")
+    return
+  end
+  vim.ui.input({ prompt = ("Inline comment on %s:%d > "):format(path, line) }, function(input)
+    if not input or vim.trim(input) == "" then
+      return
+    end
+    util.async(function()
+      local err = gitlab.create_inline(iid, input, path, line, diff_refs)
+      if err then
+        util.err("failed to create inline comment: " .. err)
+        return
+      end
+      util.notify("inline comment added")
+      require("glab-review").reload()
+    end)()
+  end)
+end
+
+--- Comment on the line under the cursor. If the line already has inline
+--- comment(s) the new comment is posted as a reply to that thread (picking
+--- one when several threads share the line); otherwise a new thread is created.
 function M.create_at_cursor()
   local cur = state.get()
   if not cur then
     util.notify("no MR loaded — run sync first")
-    return
-  end
-  if not cur.diff_refs or not cur.diff_refs.head_sha then
-    util.err("MR has no diff refs; cannot anchor an inline comment")
     return
   end
   local bufname = vim.api.nvim_buf_get_name(0)
@@ -130,20 +168,31 @@ function M.create_at_cursor()
   end
   local line = vim.api.nvim_win_get_cursor(0)[1]
 
-  vim.ui.input({ prompt = ("Inline comment on %s:%d > "):format(path, line) }, function(input)
-    if not input or vim.trim(input) == "" then
-      return
+  -- Existing inline threads on this exact line.
+  local existing = {}
+  for _, item in ipairs(state.inline_for_path(path)) do
+    if item.line == line then
+      existing[#existing + 1] = item
     end
-    util.async(function()
-      local err = gitlab.create_inline(cur.mr.iid, input, path, line, cur.diff_refs)
-      if err then
-        util.err("failed to create inline comment: " .. err)
-        return
+  end
+
+  if #existing == 0 then
+    create_new(cur.mr.iid, path, line, cur.diff_refs)
+  elseif #existing == 1 then
+    reply_to(cur.mr.iid, existing[1].discussion, path, line)
+  else
+    vim.ui.select(existing, {
+      prompt = "Reply to which thread?",
+      format_item = function(item)
+        local author = item.note.author and item.note.author.username or "?"
+        return ("@%s: %s"):format(author, util.snippet(item.note.body))
+      end,
+    }, function(choice)
+      if choice then
+        reply_to(cur.mr.iid, choice.discussion, path, line)
       end
-      util.notify("inline comment added")
-      require("glab-review").reload()
-    end)()
-  end)
+    end)
+  end
 end
 
 return M

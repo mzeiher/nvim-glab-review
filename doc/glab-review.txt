@@ -152,9 +152,11 @@ loaded state.
                         overview buffer. Opens an fzf-lua emoji picker.
 
                                                              *:GlabReviewComment*
-:GlabReviewComment      Create a new inline comment anchored to the line under
-                        the cursor. Prompts for the comment body with
-                        |vim.ui.input()|.
+:GlabReviewComment      Comment on the line under the cursor. If the line
+                        already has an inline thread, the comment is posted as
+                        a reply to it (you are prompted to choose when several
+                        threads share the line). Otherwise a new inline thread
+                        is created. Prompts for the body with |vim.ui.input()|.
 
 ==============================================================================
 7. MAPPINGS                                               *glab-review-mappings*
@@ -253,9 +255,11 @@ Rendering:
   - With bodies enabled (|:GlabReviewToggleInline|), the thread's notes are
     shown as virtual text below the line.
 
-Creating: |:GlabReviewComment| anchors a new comment to the current line on the
-new side of the diff. This works for lines present in the MR diff's new
-revision.
+Creating: |:GlabReviewComment| on a line with no inline thread anchors a new
+comment to the current line on the new side of the diff (this works for lines
+present in the MR diff's new revision). If the line already has one or more
+inline threads, the comment is instead posted as a reply to that thread (you
+choose which when several share the line) — replies need no diff position.
 
 ==============================================================================
 11. REACTIONS                                            *glab-review-reactions*
