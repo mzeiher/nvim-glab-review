@@ -1,0 +1,7 @@
+# Test/CI scratch
+.tests/
+doc/tags
+
+# Editor/OS noise
+*.swp
+.DS_Store

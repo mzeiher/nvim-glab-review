@@ -1,0 +1,425 @@
+*glab-review.txt*            Review GitLab merge request comments in Neovim
+*glab-review*
+
+Author:  mzeiher
+License: MIT
+Homepage: https://github.com/mzeiher/nvim-glab-review
+
+==============================================================================
+CONTENTS                                                  *glab-review-contents*
+
+  1. Introduction ............................. |glab-review-introduction|
+  2. Requirements ............................. |glab-review-requirements|
+  3. Installation ............................. |glab-review-installation|
+  4. Quick start .............................. |glab-review-quickstart|
+  5. Workflow ................................. |glab-review-workflow|
+  6. Commands ................................. |glab-review-commands|
+  7. Mappings ................................. |glab-review-mappings|
+  8. The overview buffer ...................... |glab-review-overview|
+  9. Meta-commands ............................ |glab-review-meta-commands|
+ 10. Inline comments .......................... |glab-review-inline|
+ 11. Reactions ................................ |glab-review-reactions|
+ 12. Configuration ............................ |glab-review-configuration|
+ 13. Lua API .................................. |glab-review-api|
+ 14. How it works ............................. |glab-review-internals|
+ 15. Troubleshooting .......................... |glab-review-troubleshooting|
+
+==============================================================================
+1. INTRODUCTION                                       *glab-review-introduction*
+
+glab-review lets you read, write and react to GitLab Merge Request comments
+without leaving Neovim. Everything is driven through the `glab` CLI, which
+supplies host and token resolution and identifies the project from the current
+git repository.
+
+The model is *explicit sync*: nothing happens in the background. You trigger a
+sync, pick the merge request for the current branch, and the plugin loads its
+description and discussions. From there:
+
+  - The MR description and general threads open in an editable scratch buffer.
+    Editing and saving (|:write|) pushes your changes.
+  - Inline (diff-positioned) comments appear as gutter signs with toggleable
+    virtual text, like |diagnostics|.
+  - A picker jumps to any comment; another reacts to the comment under the
+    cursor.
+
+==============================================================================
+2. REQUIREMENTS                                       *glab-review-requirements*
+
+  - Neovim >= 0.10                (uses |vim.system()| and extmark sign_text)
+  - glab                          https://gitlab.com/gitlab-org/cli
+                                  authenticated via `glab auth login`
+  - fzf-lua                       https://github.com/ibhagwan/fzf-lua
+  - git                           to find the current branch and repo root
+
+==============================================================================
+3. INSTALLATION                                       *glab-review-installation*
+
+With lazy.nvim (https://github.com/folke/lazy.nvim): >lua
+
+    {
+      "mzeiher/nvim-glab-review",
+      dependencies = { "ibhagwan/fzf-lua" },
+      cmd = {
+        "GlabReviewSync",
+        "GlabReviewOverview",
+        "GlabReviewToggleInline",
+        "GlabReviewComments",
+        "GlabReviewReact",
+        "GlabReviewComment",
+      },
+      keys = {
+        { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
+        { "<leader>gmo", "<cmd>GlabReviewOverview<cr>",     desc = "glab: overview" },
+        { "<leader>gmt", "<cmd>GlabReviewToggleInline<cr>", desc = "glab: toggle inline" },
+        { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
+        { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
+        { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new inline" },
+      },
+      opts = {},
+    }
+<
+`opts = {}` calls |glab-review.setup()|. lazy.nvim resolves the main module
+(`glab-review`) from the repository name automatically, so `opts` works without
+a `main` field. Pass a table to override any default; see
+|glab-review-configuration|.
+
+With packer.nvim or paq, simply ensure the plugin and fzf-lua are installed
+and call: >lua
+
+    require("glab-review").setup()
+<
+==============================================================================
+4. QUICK START                                         *glab-review-quickstart*
+
+  1. Check out the branch of the MR you want to review. For accurate inline
+     comment placement, check out at (or near) the MR's head commit; see
+     |glab-review-inline|.
+  2. `:GlabReviewSync` and pick the MR. The overview buffer opens.
+  3. Open a changed file: inline comments show as gutter signs and virtual
+     text. Toggle the bodies with `:GlabReviewToggleInline`.
+  4. `:GlabReviewComments` to jump between comments.
+  5. Put the cursor on a commented line and `:GlabReviewReact` to react, or
+     `:GlabReviewComment` to start a new inline thread.
+  6. In the overview buffer, type a reply under a thread or a new comment at
+     the bottom, then `:write` to push.
+
+==============================================================================
+5. WORKFLOW                                               *glab-review-workflow*
+
+glab-review never polls. The state you see is a snapshot taken at the last
+sync. After any mutation (reply, react, resolve, new comment) the plugin
+re-fetches the MR and re-renders, so the snapshot stays current with your own
+actions. To pick up changes made by others, run `:GlabReviewSync` again (or
+re-save the overview buffer, which re-syncs afterwards).
+
+Only one MR is loaded at a time. Syncing or picking a different MR replaces the
+loaded state.
+
+==============================================================================
+6. COMMANDS                                               *glab-review-commands*
+
+                                                                *:GlabReviewSync*
+:GlabReviewSync         List open MRs whose source branch is the current git
+                        branch and pick one with fzf-lua. The picker is always
+                        shown, even for a single match. Loads the selected MR.
+
+                                                            *:GlabReviewOverview*
+:GlabReviewOverview     Open (or focus) the overview buffer for the loaded MR.
+                        See |glab-review-overview|.
+
+                                                        *:GlabReviewToggleInline*
+:GlabReviewToggleInline Toggle the inline comment bodies (virtual text). Gutter
+                        signs always remain.
+
+                                                            *:GlabReviewComments*
+:GlabReviewComments     fzf-lua picker over every comment of the loaded MR.
+                        Selecting an inline comment opens the file and jumps to
+                        its line; a general thread jumps to it in the overview
+                        buffer.
+
+                                                             *:GlabReviewChanged*
+:GlabReviewChanged      fzf-lua picker over the files changed in the loaded MR.
+                        <Enter> opens the selected file(s); <Ctrl-q> sends the
+                        selection to the |quickfix| list (use <Tab> to select
+                        multiple). New/modified files open; deleted files are
+                        marked and skipped on open. Lines are prefixed with a
+                        status letter: A added, M modified, R renamed, D deleted.
+
+                                                               *:GlabReviewReact*
+:GlabReviewReact        React (award emoji) to the comment under the cursor.
+                        Works on a commented code line or on a thread in the
+                        overview buffer. Opens an fzf-lua emoji picker.
+
+                                                             *:GlabReviewComment*
+:GlabReviewComment      Create a new inline comment anchored to the line under
+                        the cursor. Prompts for the comment body with
+                        |vim.ui.input()|.
+
+==============================================================================
+7. MAPPINGS                                               *glab-review-mappings*
+
+No mappings are created unless `keymaps` is set (see |glab-review-configuration|).
+When |glab-review.setup()| is called with the default `keymaps`, the following
+normal-mode mappings are defined:
+
+    <leader>gms     |:GlabReviewSync|
+    <leader>gmo     |:GlabReviewOverview|
+    <leader>gmt     |:GlabReviewToggleInline|
+    <leader>gmc     |:GlabReviewComments|
+    <leader>gmf     |:GlabReviewChanged|
+    <leader>gmr     |:GlabReviewReact|
+    <leader>gmn     |:GlabReviewComment|
+
+Set `keymaps = false` to define your own. The public functions on the
+`require("glab-review")` module (see |glab-review-api|) can be mapped directly.
+
+==============================================================================
+8. THE OVERVIEW BUFFER                                    *glab-review-overview*
+
+The overview is a |scratch-buffer| named `glab-review://mr/<iid>/overview` with
+'filetype' `markdown` and 'buftype' `nofile`. It contains the MR description
+and every general (non-positioned) thread.
+
+It is structured with hidden HTML-comment markers. You edit only inside three
+kinds of region; everything else (thread headers, existing note bodies) is
+read-only context that is ignored on save: >
+
+    <!-- glab-review:description -->     edit the description here
+    ...
+    <!-- glab-review:end -->
+
+    <!-- glab-review:thread id=<id> resolved=.. resolvable=.. -->
+    ### @author - <date>
+    existing note body (read-only)
+    <!-- glab-review:reply id=<id> -->   type a reply / meta-command here
+    <!-- glab-review:end -->
+
+    <!-- glab-review:new -->             type a new top-level comment here
+    <!-- glab-review:end -->
+<
+Save with |:write|. The plugin parses the editable regions, compares them to
+what it rendered, and pushes only what changed:
+
+  - A changed description issues a description update.
+  - A non-empty reply region posts a reply to that thread.
+  - A non-empty new-comment region opens a new thread.
+  - |glab-review-meta-commands| found in a region are dispatched.
+
+After pushing, the buffer re-syncs and is marked unmodified. A no-op `:write`
+reports "no changes to push".
+
+Note: existing note bodies cannot be edited from the buffer. GitLab only allows
+editing your own notes, which is intentionally out of scope. Editing those
+lines has no effect.
+
+==============================================================================
+9. META-COMMANDS                                     *glab-review-meta-commands*
+
+Inside a reply region you may add lines that are pulled out of the comment body
+and dispatched as actions. The defaults are:
+
+    /react-check        Award white_check_mark to the thread's first note
+    /react-up           Award thumbsup
+    /react-eyes         Award eyes
+    /resolve            Resolve the thread
+    /unresolve          Unresolve the thread
+
+Example reply body: >
+
+    Looks good to me.
+    /react-check
+    /resolve
+<
+This posts "Looks good to me.", awards a checkmark, and resolves the thread in
+one save. Meta-commands are configurable via `meta_commands`
+(|glab-review-configuration|). They are also accepted by |:GlabReviewReact|'s
+input when typed.
+
+==============================================================================
+10. INLINE COMMENTS                                         *glab-review-inline*
+
+Inline comments are anchored in GitLab to a commit SHA + file + line in the MR
+diff. glab-review maps them to your working buffer using the comment's
+`new_line` (or `old_line` for deletion-side comments) 1:1.
+
+This is accurate when your working tree matches the MR's head commit. Comments
+that cannot be resolved (for example, outdated comments against a superseded
+diff) are NOT placed in the gutter. They are listed in the |:GlabReviewComments|
+picker, marked "outdated", and counted in the load summary message.
+
+Rendering:
+  - A gutter sign (`sign_text`, default "|") marks each commented line.
+  - With bodies enabled (|:GlabReviewToggleInline|), the thread's notes are
+    shown as virtual text below the line.
+
+Creating: |:GlabReviewComment| anchors a new comment to the current line on the
+new side of the diff. This works for lines present in the MR diff's new
+revision.
+
+==============================================================================
+11. REACTIONS                                            *glab-review-reactions*
+
+|:GlabReviewReact| reacts to the comment under the cursor. The target is found
+either from a commented code line (matching the cursor's line) or from a thread
+in the overview buffer. It opens an fzf-lua picker of the configured `emojis`;
+selecting one adds that award emoji to the note.
+
+Each `emojis` entry is `"<display> <api_name>"`. Only the last whitespace-
+separated token (the GitLab award-emoji name) is sent to the API, so the
+leading glyph is purely cosmetic.
+
+==============================================================================
+12. CONFIGURATION                                    *glab-review-configuration*
+
+                                                            *glab-review.setup()*
+require("glab-review").setup({opts})
+
+Merges {opts} over the defaults (deep extend) and applies key mappings. Call it
+once. With lazy.nvim, `opts = {}` does this for you.
+
+Defaults: >lua
+
+    require("glab-review").setup({
+      -- Executable used for all API access.
+      glab_cmd = "glab",
+
+      -- Award emojis offered in the reaction picker.
+      -- Format: "<display> <api_name>"; only the api_name is sent.
+      emojis = {
+        "👍 thumbsup", "👎 thumbsdown", "✅ white_check_mark",
+        "🎉 tada", "👀 eyes", "🚀 rocket", "❤️ heart", "🤔 thinking",
+      },
+
+      -- Text meta-commands usable in reply regions and the react input.
+      -- `award` adds an emoji to the targeted note; `resolve` toggles the
+      -- thread's resolved state.
+      meta_commands = {
+        ["/react-check"] = { award = "white_check_mark" },
+        ["/react-up"]    = { award = "thumbsup" },
+        ["/react-eyes"]  = { award = "eyes" },
+        ["/resolve"]     = { resolve = true },
+        ["/unresolve"]   = { resolve = false },
+      },
+
+      inline = {
+        virt_text_default = true,   -- show comment bodies on load
+        sign_text = "|",            -- gutter sign on commented lines
+        sign_hl   = "DiagnosticSignInfo",
+        virt_hl   = "Comment",      -- note body highlight
+        author_hl = "DiagnosticInfo",
+      },
+
+      -- Default normal-mode mappings. Set to false to define your own.
+      keymaps = {
+        sync          = "<leader>gms",
+        overview      = "<leader>gmo",
+        toggle_inline = "<leader>gmt",
+        comments      = "<leader>gmc",
+        changed       = "<leader>gmf",
+        react         = "<leader>gmr",
+        comment       = "<leader>gmn",
+      },
+    })
+<
+Set any individual `keymaps.<name>` to `nil` to skip just that mapping, or
+`keymaps = false` to skip them all.
+
+==============================================================================
+13. LUA API                                                    *glab-review-api*
+
+All functions live on the `require("glab-review")` module:
+
+glab-review.setup({opts})
+        Configure and apply mappings. Documented under
+        |glab-review-configuration|.
+
+glab-review.sync()                                           *glab-review.sync()*
+        List MRs for the current branch, pick one, and load it. Same as
+        |:GlabReviewSync|.
+
+glab-review.open_overview()                          *glab-review.open_overview()*
+        Open the overview buffer. Same as |:GlabReviewOverview|.
+
+glab-review.toggle_inline()                          *glab-review.toggle_inline()*
+        Toggle inline comment bodies. Same as |:GlabReviewToggleInline|.
+
+glab-review.comments()                                   *glab-review.comments()*
+        Open the comment-navigation picker. Same as |:GlabReviewComments|.
+
+glab-review.changed()                                     *glab-review.changed()*
+        Open the changed-files picker. Same as |:GlabReviewChanged|.
+
+glab-review.react()                                         *glab-review.react()*
+        React to the comment under the cursor. Same as |:GlabReviewReact|.
+
+glab-review.comment()                                     *glab-review.comment()*
+        Create an inline comment on the current line. Same as
+        |:GlabReviewComment|.
+
+glab-review.reload()                                       *glab-review.reload()*
+        Re-fetch and re-render the currently loaded MR. Called automatically
+        after mutations; rarely needed directly.
+
+These can be bound to keys when `keymaps = false`, e.g.: >lua
+
+    vim.keymap.set("n", "<leader>gs", require("glab-review").sync)
+<
+==============================================================================
+14. HOW IT WORKS                                         *glab-review-internals*
+
+All API access goes through `glab api`, which targets the GitLab REST API for
+the current repository (the `:fullpath` placeholder is expanded by glab).
+Requests are asynchronous (|vim.system()|); request bodies are passed as raw
+JSON on standard input, so arbitrary comment text needs no shell escaping.
+
+Endpoints used (all under `projects/:fullpath/merge_requests`):
+
+    GET    ?source_branch=&state=opened      list MRs for the branch
+    GET    /<iid>                             MR details + diff_refs
+    GET    /<iid>/discussions                 all threads (paginated)
+    GET    /<iid>/diffs                        changed files (paginated)
+    POST   /<iid>/discussions                 new thread / inline comment
+    POST   /<iid>/discussions/<id>/notes      reply to a thread
+    PUT    /<iid>/discussions/<id>?resolved=  resolve / unresolve
+    POST   /<iid>/notes/<nid>/award_emoji     react
+    PUT    /<iid>                             update description
+
+Module layout (under `lua/glab-review/`):
+
+    init.lua        public API, setup, sync/reload flow, mappings
+    config.lua      defaults and merge
+    glab.lua        async `glab api` wrapper
+    gitlab.lua      high-level MR operations
+    state.lua       in-memory MR model and indexes
+    util.lua        coroutine async/await, git helpers, notify
+    picker.lua      fzf-lua pickers (MR / comments / emoji)
+    overview.lua    overview buffer render + save protocol parser
+    inline.lua      extmark signs + virtual text + inline creation
+    reactions.lua   award emoji + meta-command dispatch
+
+==============================================================================
+15. TROUBLESHOOTING                                *glab-review-troubleshooting*
+
+"glab api ... failed"
+        Ensure `glab auth status` succeeds and you are inside a git repository
+        with a GitLab remote. The project is resolved from the current repo.
+
+"no open MRs for branch '...'"
+        There is no open MR whose source branch matches the current branch.
+        Check out the MR's source branch.
+
+Inline comments appear on the wrong lines
+        Your working tree differs from the MR's head commit. Check out at the
+        MR head; unmappable comments are listed in |:GlabReviewComments|.
+
+"fzf-lua is required but not installed"
+        Install https://github.com/ibhagwan/fzf-lua.
+
+Creating an inline comment fails
+        The targeted line may not exist in the MR diff's new revision, or the
+        MR has no `diff_refs`. Inline creation is only supported on lines in
+        the new revision.
+
+==============================================================================
+vim:tw=78:ts=8:noet:ft=help:norl:
