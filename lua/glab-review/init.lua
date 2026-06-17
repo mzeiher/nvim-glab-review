@@ -110,9 +110,9 @@ function M.react()
   require("glab-review.reactions").react_at_cursor()
 end
 
---- Create a new inline comment on the code line under the cursor.
-function M.comment()
-  require("glab-review.inline").create_at_cursor()
+--- Comment on the current line, or on a selected range (multi-line comment).
+function M.comment(line1, line2)
+  require("glab-review.inline").create_at_cursor(line1, line2)
 end
 
 local function apply_keymaps()
@@ -132,6 +132,13 @@ local function apply_keymaps()
   map(km.changed, M.changed, "glab-review: changed files picker")
   map(km.react, M.react, "glab-review: react at cursor")
   map(km.comment, M.comment, "glab-review: new inline comment")
+  -- Visual-mode: comment on the selected range (multi-line comment).
+  if km.comment then
+    vim.keymap.set("x", km.comment, ":GlabReviewComment<CR>", {
+      desc = "glab-review: comment on selection",
+      silent = true,
+    })
+  end
 end
 
 function M.setup(opts)

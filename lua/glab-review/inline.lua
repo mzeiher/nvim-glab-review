@@ -151,10 +151,79 @@ local function create_new(iid, path, line, diff_refs)
   end)
 end
 
---- Comment on the line under the cursor. If the line already has inline
---- comment(s) the new comment is posted as a reply to that thread (picking
---- one when several threads share the line); otherwise a new thread is created.
-function M.create_at_cursor()
+-- Create a multi-line inline thread spanning new-side lines [line1, line2].
+-- Needs the file's diff to compute GitLab line codes for the range endpoints.
+local function create_multiline(iid, path, line1, line2, diff_refs)
+  if not diff_refs or not diff_refs.head_sha then
+    util.err("MR has no diff refs; cannot anchor an inline comment")
+    return
+  end
+  util.async(function()
+    local err, files = require("glab-review.gitlab").get_changes(iid)
+    if err then
+      util.err(err)
+      return
+    end
+    local diff_text
+    for _, c in ipairs(files or {}) do
+      if c.new_path == path or c.old_path == path then
+        diff_text = c.diff
+        break
+      end
+    end
+    if not diff_text then
+      util.err(("%s is not part of this MR's changes"):format(path))
+      return
+    end
+
+    local map = require("glab-review.diff").new_line_map(diff_text)
+    local old1, old2 = map[line1], map[line2]
+    if not old1 or not old2 then
+      util.err("selected range is not within the MR diff for this file")
+      return
+    end
+
+    local sha = util.sha1(path)
+    local function code(old, new)
+      return ("%s_%d_%d"):format(sha, old, new)
+    end
+
+    local input = util.await(function(resume)
+      vim.ui.input({ prompt = ("Comment on %s:%d-%d > "):format(path, line1, line2) }, resume)
+    end)
+    if not input or vim.trim(input) == "" then
+      return
+    end
+
+    local position = {
+      position_type = "text",
+      base_sha = diff_refs.base_sha,
+      head_sha = diff_refs.head_sha,
+      start_sha = diff_refs.start_sha,
+      new_path = path,
+      old_path = path,
+      new_line = line2,
+      line_range = {
+        start = { line_code = code(old1, line1), type = "new" },
+        ["end"] = { line_code = code(old2, line2), type = "new" },
+      },
+    }
+    local e2 = require("glab-review.gitlab").create_positioned(iid, input, position)
+    if e2 then
+      util.err("failed to create inline comment: " .. e2)
+      return
+    end
+    util.notify(("inline comment added (%d-%d)"):format(line1, line2))
+    require("glab-review").reload()
+  end)()
+end
+
+--- Comment on the line(s) under the cursor / selection.
+--- With a single line: if it already has inline thread(s) the comment is posted
+--- as a reply (picking one when several share the line), otherwise a new thread
+--- is created. With a multi-line range (`line1 ~= line2`): a new multi-line
+--- inline thread is created spanning the range.
+function M.create_at_cursor(line1, line2)
   local cur = state.get()
   if not cur then
     util.notify("no MR loaded — run sync first")
@@ -166,7 +235,13 @@ function M.create_at_cursor()
     util.err("current buffer is not inside the repo")
     return
   end
-  local line = vim.api.nvim_win_get_cursor(0)[1]
+
+  if line1 and line2 and line2 > line1 then
+    create_multiline(cur.mr.iid, path, line1, line2, cur.diff_refs)
+    return
+  end
+
+  local line = line1 or vim.api.nvim_win_get_cursor(0)[1]
 
   -- Existing inline threads on this exact line.
   local existing = {}

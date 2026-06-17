@@ -27,7 +27,8 @@ text with a gutter sign, just like diagnostics.
   text showing each thread's notes (`:GlabReviewToggleInline`).
 - **Create inline comments** — comment on the line under the cursor
   (`:GlabReviewComment`); if the line already has a thread, it replies to it
-  instead of starting a new one.
+  instead of starting a new one. Select lines in Visual mode to post a single
+  **multi-line** comment spanning the selection.
 - **Comment navigation** — fzf-lua picker over every comment that jumps to the
   file/line (inline) or the thread (general) (`:GlabReviewComments`).
 - **Changed files** — fzf-lua picker over the files changed in the MR; open
@@ -101,7 +102,7 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
-| `:GlabReviewComment` | `<leader>gmn` | Comment on the current line (replies if a thread exists) |
+| `:GlabReviewComment` | `<leader>gmn` | Comment on the current line / Visual selection (replies if a thread exists) |
 
 ### The overview buffer
 

@@ -56,11 +56,17 @@ function M.award(iid, note_id, name)
   })
 end
 
---- Create a positioned (inline) discussion anchored to `path`:`new_line`.
---- `diff_refs` comes from the loaded MR. Works for lines present in the MR
---- diff's new revision; context/unchanged lines may also need `old_line`.
+--- Create a discussion with a prebuilt diff `position`.
+function M.create_positioned(iid, body, position)
+  return glab.api_await(("%s/%d/discussions"):format(BASE, iid), {
+    method = "POST",
+    body = { body = body, position = position },
+  })
+end
+
+--- Create a single-line inline discussion anchored to `path`:`new_line`.
 function M.create_inline(iid, body, path, new_line, diff_refs)
-  local position = {
+  return M.create_positioned(iid, body, {
     position_type = "text",
     base_sha = diff_refs.base_sha,
     head_sha = diff_refs.head_sha,
@@ -68,10 +74,6 @@ function M.create_inline(iid, body, path, new_line, diff_refs)
     new_path = path,
     old_path = path,
     new_line = new_line,
-  }
-  return glab.api_await(("%s/%d/discussions"):format(BASE, iid), {
-    method = "POST",
-    body = { body = body, position = position },
   })
 end
 

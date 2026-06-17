@@ -156,7 +156,9 @@ local function ensure_buffer()
   bufnr = vim.api.nvim_create_buf(false, true)
   local cur = state.get()
   vim.api.nvim_buf_set_name(bufnr, ("glab-review://mr/%d/overview"):format(cur.mr.iid))
-  vim.bo[bufnr].buftype = "nofile"
+  -- `acwrite` (not `nofile`) so that `:w` is handled by our BufWriteCmd instead
+  -- of erroring with E382.
+  vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].filetype = "markdown"

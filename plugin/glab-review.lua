@@ -22,4 +22,12 @@ cmd("GlabReviewToggleInline", "toggle_inline", "Toggle inline comment virtual te
 cmd("GlabReviewComments", "comments", "Pick and jump to any MR comment")
 cmd("GlabReviewChanged", "changed", "Pick changed files (open or send to quickfix)")
 cmd("GlabReviewReact", "react", "React to the comment under the cursor")
-cmd("GlabReviewComment", "comment", "Create an inline comment on the current line")
+
+-- Range-aware: a visual selection comments on the whole range (multi-line).
+vim.api.nvim_create_user_command("GlabReviewComment", function(o)
+  if o.range == 2 then
+    require("glab-review").comment(o.line1, o.line2)
+  else
+    require("glab-review").comment()
+  end
+end, { range = true, desc = "Comment on the current line or selection" })

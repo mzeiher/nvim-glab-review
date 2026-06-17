@@ -158,6 +158,12 @@ loaded state.
                         threads share the line). Otherwise a new inline thread
                         is created. Prompts for the body with |vim.ui.input()|.
 
+                        Accepts a range: select lines in Visual mode and run it
+                        (or `:'<,'>GlabReviewComment`) to create a single
+                        multi-line comment spanning the selection. The range
+                        must lie within the file's MR diff. The default
+                        `comment` mapping is also bound in Visual mode.
+
 ==============================================================================
 7. MAPPINGS                                               *glab-review-mappings*
 
@@ -179,9 +185,10 @@ Set `keymaps = false` to define your own. The public functions on the
 ==============================================================================
 8. THE OVERVIEW BUFFER                                    *glab-review-overview*
 
-The overview is a |scratch-buffer| named `glab-review://mr/<iid>/overview` with
-'filetype' `markdown` and 'buftype' `nofile`. It contains the MR description
-and every general (non-positioned) thread.
+The overview is a buffer named `glab-review://mr/<iid>/overview` with
+'filetype' `markdown` and 'buftype' `acwrite` (so `:w` is handled by the
+plugin). It contains the MR description and every general (non-positioned)
+thread.
 
 It is structured with hidden HTML-comment markers. You edit only inside three
 kinds of region; everything else (thread headers, existing note bodies) is
@@ -260,6 +267,12 @@ comment to the current line on the new side of the diff (this works for lines
 present in the MR diff's new revision). If the line already has one or more
 inline threads, the comment is instead posted as a reply to that thread (you
 choose which when several share the line) — replies need no diff position.
+
+Multi-line comments: select a range in Visual mode and run |:GlabReviewComment|.
+The plugin fetches the file's diff, derives the GitLab line codes for the start
+and end lines (SHA1(path)_<old>_<new>), and posts one comment spanning the
+range. The selected lines must lie within the file's MR diff; a selection
+outside the diff is rejected with a message.
 
 ==============================================================================
 11. REACTIONS                                            *glab-review-reactions*
@@ -396,7 +409,8 @@ Module layout (under `lua/glab-review/`):
     glab.lua        async `glab api` wrapper
     gitlab.lua      high-level MR operations
     state.lua       in-memory MR model and indexes
-    util.lua        coroutine async/await, git helpers, notify
+    diff.lua        unified-diff parsing (new->old line map for line codes)
+    util.lua        coroutine async/await, git helpers, SHA1, notify
     picker.lua      fzf-lua pickers (MR / comments / emoji)
     overview.lua    overview buffer render + save protocol parser
     inline.lua      extmark signs + virtual text + inline creation

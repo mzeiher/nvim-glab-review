@@ -97,6 +97,63 @@ function M.repo_relative(abspath, root)
   return nil
 end
 
+--- SHA1 hash of a string, returned as a 40-char lowercase hex digest.
+--- Used to build GitLab diff line codes (`<sha1(path)>_<old>_<new>`).
+function M.sha1(msg)
+  local bit = require("bit")
+  local band, bor, bxor, bnot = bit.band, bit.bor, bit.bxor, bit.bnot
+  local lshift, rol, tohex = bit.lshift, bit.rol, bit.tohex
+
+  local h0, h1, h2, h3, h4 =
+    0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0
+
+  local len = #msg
+  msg = msg .. "\128"
+  while (#msg % 64) ~= 56 do
+    msg = msg .. "\0"
+  end
+  -- 64-bit big-endian bit length (high word is 0 for any realistic path)
+  local bitlen, lenbytes = len * 8, {}
+  for i = 8, 1, -1 do
+    lenbytes[i] = string.char(bitlen % 256)
+    bitlen = math.floor(bitlen / 256)
+  end
+  msg = msg .. table.concat(lenbytes)
+
+  for chunk = 1, #msg, 64 do
+    local w = {}
+    for i = 0, 15 do
+      local b1, b2, b3, b4 = msg:byte(chunk + i * 4, chunk + i * 4 + 3)
+      w[i] = bor(lshift(b1, 24), lshift(b2, 16), lshift(b3, 8), b4)
+    end
+    for i = 16, 79 do
+      w[i] = rol(bxor(w[i - 3], w[i - 8], w[i - 14], w[i - 16]), 1)
+    end
+    local a, b, c, d, e = h0, h1, h2, h3, h4
+    for i = 0, 79 do
+      local f, k
+      if i < 20 then
+        f, k = bor(band(b, c), band(bnot(b), d)), 0x5A827999
+      elseif i < 40 then
+        f, k = bxor(bxor(b, c), d), 0x6ED9EBA1
+      elseif i < 60 then
+        f, k = bor(bor(band(b, c), band(b, d)), band(c, d)), 0x8F1BBCDC
+      else
+        f, k = bxor(bxor(b, c), d), 0xCA62C1D6
+      end
+      local temp = band(rol(a, 5) + f + e + k + w[i], 0xFFFFFFFF)
+      e, d, c, b, a = d, c, rol(b, 30), a, temp
+    end
+    h0 = band(h0 + a, 0xFFFFFFFF)
+    h1 = band(h1 + b, 0xFFFFFFFF)
+    h2 = band(h2 + c, 0xFFFFFFFF)
+    h3 = band(h3 + d, 0xFFFFFFFF)
+    h4 = band(h4 + e, 0xFFFFFFFF)
+  end
+
+  return tohex(h0) .. tohex(h1) .. tohex(h2) .. tohex(h3) .. tohex(h4)
+end
+
 --- Percent-encode a string for use in a URL query value.
 function M.urlencode(s)
   return (tostring(s):gsub("[^%w%-_%.~]", function(c)
