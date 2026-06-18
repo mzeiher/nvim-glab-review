@@ -30,4 +30,6 @@ vim.api.nvim_create_user_command("GlabReviewComment", function(o)
   else
     require("glab-review").comment()
   end
-end, { range = true, desc = "Comment on the current line or selection" })
+end, { range = true, desc = "Create a new comment on the current line or selection" })
+
+cmd("GlabReviewReply", "reply", "Reply to the thread under the cursor")

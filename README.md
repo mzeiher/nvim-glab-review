@@ -25,10 +25,11 @@ text with a gutter sign, just like diagnostics.
   comments, and `/meta-commands` (see below).
 - **Inline comments** — gutter signs on commented lines and toggleable virtual
   text showing each thread's notes (`:GlabReviewToggleInline`).
-- **Create inline comments** — comment on the line under the cursor
-  (`:GlabReviewComment`); if the line already has a thread, it replies to it
-  instead of starting a new one. Select lines in Visual mode to post a single
+- **Create inline comments** — always start a new thread on the line under the
+  cursor (`:GlabReviewComment`). Select lines in Visual mode to post a single
   **multi-line** comment spanning the selection.
+- **Reply to threads** — reply to the thread under the cursor, on a commented
+  code line or a thread in the overview buffer (`:GlabReviewReply`).
 - **Comment navigation** — fzf-lua picker over every comment that jumps to the
   file/line (inline) or the thread (general) (`:GlabReviewComments`).
 - **Changed files** — fzf-lua picker over the files changed in the MR; open
@@ -60,6 +61,7 @@ commands and keys:
     "GlabReviewChanged",
     "GlabReviewReact",
     "GlabReviewComment",
+    "GlabReviewReply",
   },
   keys = {
     { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
@@ -68,7 +70,9 @@ commands and keys:
     { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
     { "<leader>gmf", "<cmd>GlabReviewChanged<cr>",      desc = "glab: changed files" },
     { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
-    { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new inline" },
+    { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new comment" },
+    { "<leader>gmR", "<cmd>GlabReviewReply<cr>",        desc = "glab: reply" },
+    { "<leader>gmn", "<cmd>GlabReviewComment<cr>", mode = "x", desc = "glab: comment on selection" },
   },
   opts = {},
 }
@@ -89,8 +93,9 @@ field is needed. Pass a table to override any default (see
    commit — see [Inline comment mapping](#inline-comment-mapping)).
 2. `:GlabReviewSync` → pick the MR. The overview buffer opens.
 3. Open any changed file → inline comments show as gutter signs + virtual text.
-4. `:GlabReviewComments` to jump around; `:GlabReviewReact` on a commented line
-   to react; `:GlabReviewComment` to start a new inline thread.
+4. `:GlabReviewComments` to jump around; `:GlabReviewReact` to react,
+   `:GlabReviewReply` to reply, or `:GlabReviewComment` to start a new thread on
+   a line.
 
 ### Commands
 
@@ -102,7 +107,8 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
-| `:GlabReviewComment` | `<leader>gmn` | Comment on the current line / Visual selection (replies if a thread exists) |
+| `:GlabReviewComment` | `<leader>gmn` | Create a new comment on the current line / Visual selection |
+| `:GlabReviewReply` | `<leader>gmR` | Reply to the thread under the cursor |
 
 ### The overview buffer
 
@@ -176,6 +182,7 @@ require("glab-review").setup({
     changed = "<leader>gmf",
     react = "<leader>gmr",
     comment = "<leader>gmn",
+    reply = "<leader>gmR",
   },
 })
 ```

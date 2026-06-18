@@ -111,14 +111,14 @@ function M.toggle()
   util.notify("inline comment bodies " .. (show_bodies and "shown" or "hidden"))
 end
 
--- Post a reply to an existing inline thread.
-local function reply_to(iid, discussion, path, line)
-  vim.ui.input({ prompt = ("Reply on %s:%d > "):format(path, line) }, function(input)
+-- Post a reply to an existing thread. `label` is shown in the input prompt.
+local function reply_to(iid, discussion_id, label)
+  vim.ui.input({ prompt = ("Reply to %s > "):format(label) }, function(input)
     if not input or vim.trim(input) == "" then
       return
     end
     util.async(function()
-      local err = gitlab.reply(iid, discussion.id, input)
+      local err = gitlab.reply(iid, discussion_id, input)
       if err then
         util.err("failed to reply: " .. err)
         return
@@ -218,11 +218,10 @@ local function create_multiline(iid, path, line1, line2, diff_refs)
   end)()
 end
 
---- Comment on the line(s) under the cursor / selection.
---- With a single line: if it already has inline thread(s) the comment is posted
---- as a reply (picking one when several share the line), otherwise a new thread
---- is created. With a multi-line range (`line1 ~= line2`): a new multi-line
---- inline thread is created spanning the range.
+--- Always create a NEW inline thread on the line(s) under the cursor /
+--- selection. A single line creates a single-line thread; a multi-line range
+--- (`line1 ~= line2`) creates one comment spanning the range. To reply to an
+--- existing thread, use `reply_at_cursor` instead.
 function M.create_at_cursor(line1, line2)
   local cur = state.get()
   if not cur then
@@ -238,12 +237,37 @@ function M.create_at_cursor(line1, line2)
 
   if line1 and line2 and line2 > line1 then
     create_multiline(cur.mr.iid, path, line1, line2, cur.diff_refs)
+  else
+    local line = line1 or vim.api.nvim_win_get_cursor(0)[1]
+    create_new(cur.mr.iid, path, line, cur.diff_refs)
+  end
+end
+
+--- Reply to the thread under the cursor. Works on a thread in the overview
+--- buffer, or on a commented code line (picking one when several threads share
+--- the line).
+function M.reply_at_cursor()
+  local cur = state.get()
+  if not cur then
+    util.notify("no MR loaded — run sync first")
+    return
+  end
+  local iid = cur.mr.iid
+
+  -- In the overview buffer, reply to the thread under the cursor.
+  local ov = require("glab-review.overview").discussion_at_cursor()
+  if ov then
+    reply_to(iid, ov.discussion_id, "this thread")
     return
   end
 
-  local line = line1 or vim.api.nvim_win_get_cursor(0)[1]
+  local path = util.repo_relative(vim.api.nvim_buf_get_name(0))
+  if not path then
+    util.err("no comment under the cursor to reply to")
+    return
+  end
+  local line = vim.api.nvim_win_get_cursor(0)[1]
 
-  -- Existing inline threads on this exact line.
   local existing = {}
   for _, item in ipairs(state.inline_for_path(path)) do
     if item.line == line then
@@ -252,9 +276,9 @@ function M.create_at_cursor(line1, line2)
   end
 
   if #existing == 0 then
-    create_new(cur.mr.iid, path, line, cur.diff_refs)
+    util.notify("no comment on this line to reply to")
   elseif #existing == 1 then
-    reply_to(cur.mr.iid, existing[1].discussion, path, line)
+    reply_to(iid, existing[1].discussion.id, ("%s:%d"):format(path, line))
   else
     vim.ui.select(existing, {
       prompt = "Reply to which thread?",
@@ -264,7 +288,7 @@ function M.create_at_cursor(line1, line2)
       end,
     }, function(choice)
       if choice then
-        reply_to(cur.mr.iid, choice.discussion, path, line)
+        reply_to(iid, choice.discussion.id, ("%s:%d"):format(path, line))
       end
     end)
   end

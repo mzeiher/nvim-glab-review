@@ -152,17 +152,22 @@ loaded state.
                         overview buffer. Opens an fzf-lua emoji picker.
 
                                                              *:GlabReviewComment*
-:GlabReviewComment      Comment on the line under the cursor. If the line
-                        already has an inline thread, the comment is posted as
-                        a reply to it (you are prompted to choose when several
-                        threads share the line). Otherwise a new inline thread
-                        is created. Prompts for the body with |vim.ui.input()|.
+:GlabReviewComment      Always create a NEW inline thread on the line under the
+                        cursor (even if the line already has comments). Prompts
+                        for the body with |vim.ui.input()|. To reply to an
+                        existing thread, use |:GlabReviewReply| instead.
 
                         Accepts a range: select lines in Visual mode and run it
                         (or `:'<,'>GlabReviewComment`) to create a single
                         multi-line comment spanning the selection. The range
                         must lie within the file's MR diff. The default
                         `comment` mapping is also bound in Visual mode.
+
+                                                               *:GlabReviewReply*
+:GlabReviewReply        Reply to the thread under the cursor. Works on a thread
+                        in the overview buffer, or on a commented code line
+                        (you are prompted to choose when several threads share
+                        the line). Prompts for the reply with |vim.ui.input()|.
 
 ==============================================================================
 7. MAPPINGS                                               *glab-review-mappings*
@@ -177,6 +182,7 @@ normal-mode mappings are defined:
     <leader>gmc     |:GlabReviewComments|
     <leader>gmf     |:GlabReviewChanged|
     <leader>gmr     |:GlabReviewReact|
+    <leader>gmR     |:GlabReviewReply|
     <leader>gmn     |:GlabReviewComment|
 
 Set `keymaps = false` to define your own. The public functions on the
@@ -262,11 +268,12 @@ Rendering:
   - With bodies enabled (|:GlabReviewToggleInline|), the thread's notes are
     shown as virtual text below the line.
 
-Creating: |:GlabReviewComment| on a line with no inline thread anchors a new
-comment to the current line on the new side of the diff (this works for lines
-present in the MR diff's new revision). If the line already has one or more
-inline threads, the comment is instead posted as a reply to that thread (you
-choose which when several share the line) — replies need no diff position.
+Creating: |:GlabReviewComment| always anchors a NEW comment to the current
+line on the new side of the diff (this works for lines present in the MR diff's
+new revision), even if the line already has comments.
+
+Replying: |:GlabReviewReply| posts a reply to the thread on the current line
+(choosing which when several share it) — replies need no diff position.
 
 Multi-line comments: select a range in Visual mode and run |:GlabReviewComment|.
 The plugin fetches the file's diff, derives the GitLab line codes for the start
@@ -335,6 +342,7 @@ Defaults: >lua
         comments      = "<leader>gmc",
         changed       = "<leader>gmf",
         react         = "<leader>gmr",
+        reply         = "<leader>gmR",
         comment       = "<leader>gmn",
       },
     })
@@ -369,6 +377,9 @@ glab-review.changed()                                     *glab-review.changed()
 
 glab-review.react()                                         *glab-review.react()*
         React to the comment under the cursor. Same as |:GlabReviewReact|.
+
+glab-review.reply()                                         *glab-review.reply()*
+        Reply to the thread under the cursor. Same as |:GlabReviewReply|.
 
 glab-review.comment()                                     *glab-review.comment()*
         Create an inline comment on the current line. Same as

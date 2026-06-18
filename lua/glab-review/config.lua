@@ -49,6 +49,7 @@ local defaults = {
     changed = "<leader>gmf",
     react = "<leader>gmr",
     comment = "<leader>gmn",
+    reply = "<leader>gmR",
   },
 }
 
