@@ -50,7 +50,7 @@ function M.api(path, opts, cb)
       cb(nil, nil)
       return
     end
-    local ok, decoded = pcall(vim.json.decode, body, { luanil = { object = true, array = true } })
+    local ok, decoded = util.decode_json_stream(body)
     if not ok then
       cb("failed to decode glab response: " .. tostring(decoded), nil)
       return

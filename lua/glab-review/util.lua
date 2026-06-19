@@ -161,6 +161,68 @@ function M.urlencode(s)
   end))
 end
 
+--- Decode a `glab api` response body, which may be several JSON documents
+--- concatenated back-to-back. `glab --paginate` writes each page's body in
+--- sequence, so a multi-page list endpoint yields `[...][...]` rather than one
+--- array; vim.json.decode stops after the first and reports a stray
+--- `T_ARR_BEGIN`. Walk the bytes (tracking string/escape state and bracket
+--- depth) to split the top-level documents, then concatenate their elements.
+--- Returns (ok, value_or_error) mirroring pcall(vim.json.decode, ...).
+function M.decode_json_stream(body)
+  local opts = { luanil = { object = true, array = true } }
+  local ok, decoded = pcall(vim.json.decode, body, opts)
+  if ok then
+    return true, decoded
+  end
+
+  local docs = {}
+  local depth, in_str, escaped, start = 0, false, false, nil
+  for i = 1, #body do
+    local c = body:byte(i)
+    if in_str then
+      if escaped then
+        escaped = false
+      elseif c == 92 then -- backslash
+        escaped = true
+      elseif c == 34 then -- closing quote
+        in_str = false
+      end
+    elseif c == 34 then -- opening quote
+      in_str = true
+    elseif c == 123 or c == 91 then -- { or [
+      if depth == 0 then
+        start = i
+      end
+      depth = depth + 1
+    elseif c == 125 or c == 93 then -- } or ]
+      depth = depth - 1
+      if depth == 0 and start then
+        docs[#docs + 1] = body:sub(start, i)
+        start = nil
+      end
+    end
+  end
+
+  if #docs < 2 then
+    -- Not the concatenated-pages case; surface the original decode error.
+    return false, decoded
+  end
+
+  local merged = {}
+  for _, doc in ipairs(docs) do
+    local dok, dval = pcall(vim.json.decode, doc, opts)
+    if not dok then
+      return false, dval
+    end
+    if type(dval) == "table" then
+      for _, item in ipairs(dval) do
+        merged[#merged + 1] = item
+      end
+    end
+  end
+  return true, merged
+end
+
 --- Truncate to a single line of at most `n` characters for picker/virt display.
 function M.snippet(s, n)
   n = n or 60
