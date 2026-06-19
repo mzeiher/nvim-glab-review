@@ -202,6 +202,21 @@ function M.open()
   end
 end
 
+--- Re-render the overview buffer in place, without stealing focus or opening a
+--- window. Used after a server reload triggered by a mutation made from another
+--- buffer, so the cursor stays where the user is working.
+function M.refresh()
+  if not state.is_loaded() then
+    return
+  end
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  if not vim.bo[bufnr].modified then
+    do_render()
+  end
+end
+
 --- Move the cursor to a general discussion's thread block.
 function M.jump_to_discussion(discussion_id)
   M.open()

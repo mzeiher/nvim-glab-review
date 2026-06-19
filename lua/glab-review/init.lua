@@ -8,7 +8,8 @@ local M = {}
 
 --- Fetch an MR + its discussions, rebuild state, and (re)render the UI.
 --- Runs inside an async coroutine.
-local function load_mr(iid)
+local function load_mr(iid, opts)
+  opts = opts or {}
   local err, mr = gitlab.get_mr(iid)
   if err then
     util.err(err)
@@ -24,7 +25,13 @@ local function load_mr(iid)
 
   local overview = require("glab-review.overview")
   local inline = require("glab-review.inline")
-  overview.open()
+  -- On reload (post-mutation) re-render in place so focus stays in the buffer
+  -- the user is working in; on an initial load, open and focus the overview.
+  if opts.refresh then
+    overview.refresh()
+  else
+    overview.open()
+  end
   inline.refresh_all()
 
   local n_inline = 0
@@ -41,7 +48,7 @@ M.reload = util.async(function()
   if not cur then
     return
   end
-  load_mr(cur.mr.iid)
+  load_mr(cur.mr.iid, { refresh = true })
 end)
 
 --- Explicit sync: list MRs for the current branch, pick one, load it.
