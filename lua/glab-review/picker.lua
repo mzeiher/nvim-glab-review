@@ -153,7 +153,7 @@ local function change_status(c)
 end
 
 --- Picker over the files changed in the MR. `<Enter>` opens the selection;
---- `<Ctrl-q>` sends it to the quickfix list. `files` is the `/diffs` list.
+--- `<Alt-q>`/`<Ctrl-q>` send it to the quickfix list. `files` is the `/diffs` list.
 function M.pick_changed_files(files)
   local f = fzf()
   if not f then
@@ -236,6 +236,9 @@ function M.pick_changed_files(files)
     },
     actions = {
       ["default"] = open,
+      -- fzf-lua's default files picker binds send-to-quickfix to alt-q; mirror
+      -- it here (with ctrl-q kept as an alias) so this picker behaves the same.
+      ["alt-q"] = to_quickfix,
       ["ctrl-q"] = to_quickfix,
     },
   })
