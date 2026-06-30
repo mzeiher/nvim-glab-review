@@ -53,6 +53,48 @@ check("hunk2 context c -> old 50", map2[50] == 50)
 check("hunk2 added -> old 51", map2[51] == 51)
 check("line outside any hunk is absent", map2[999] == nil)
 
+-- changed_lines: the deletion+two-additions diff above.
+--   new: 1 line1(ctx) 2 new2(+) 3 new2b(+) 4 line3(ctx) 5 line4(ctx)
+-- One line deleted, two added: first addition "changes" the deletion, the
+-- second is a pure "add"; no leftover delete marker.
+local cl = diff.changed_lines(d)
+local function find_kind(list, ln)
+  for _, s in ipairs(list) do
+    if s.line == ln then
+      return s.kind
+    end
+  end
+  return nil
+end
+check("changed: line 2 is a change", find_kind(cl, 2) == "change")
+check("changed: line 3 is an add", find_kind(cl, 3) == "add")
+check("changed: context line 1 unmarked", find_kind(cl, 1) == nil)
+check("changed: context line 4 unmarked", find_kind(cl, 4) == nil)
+check("changed: total signs == 2", #cl == 2)
+
+-- Pure deletion with no replacement -> a single delete marker anchored on the
+-- new-side line that follows the removed content.
+local ddel = table.concat({
+  "@@ -1,3 +1,2 @@",
+  " keep1",
+  "-gone",
+  " keep2",
+}, "\n")
+local cdel = diff.changed_lines(ddel)
+check("delete: one sign", #cdel == 1)
+check("delete: anchored on following new line 2", cdel[1].line == 2 and cdel[1].kind == "delete")
+
+-- changedelete: more deletions than additions leaves a trailing delete marker.
+local dcd = table.concat({
+  "@@ -1,3 +1,1 @@",
+  "-a",
+  "-b",
+  "+merged",
+}, "\n")
+local ccd = diff.changed_lines(dcd)
+check("changedelete: addition at line 1 is a change", find_kind(ccd, 1) == "change")
+check("changedelete: leftover deletion marked delete", find_kind(ccd, 2) == "delete")
+
 if failures > 0 then
   io.write(("\n%d failure(s)\n"):format(failures))
   vim.cmd("cquit 1")

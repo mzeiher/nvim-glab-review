@@ -132,6 +132,11 @@ loaded state.
 :GlabReviewToggleInline Toggle the inline comment bodies (virtual text). Gutter
                         signs always remain.
 
+                                                       *:GlabReviewToggleChanges*
+:GlabReviewToggleChanges
+                        Toggle the change-hint gutter signs (see
+                        |glab-review-changes|).
+
                                                             *:GlabReviewComments*
 :GlabReviewComments     fzf-lua picker over every comment of the loaded MR.
                         Selecting an inline comment opens the file and jumps to
@@ -179,6 +184,7 @@ normal-mode mappings are defined:
     <leader>gms     |:GlabReviewSync|
     <leader>gmo     |:GlabReviewOverview|
     <leader>gmt     |:GlabReviewToggleInline|
+    <leader>gmd     |:GlabReviewToggleChanges|
     <leader>gmc     |:GlabReviewComments|
     <leader>gmf     |:GlabReviewChanged|
     <leader>gmr     |:GlabReviewReact|
@@ -281,6 +287,26 @@ and end lines (SHA1(path)_<old>_<new>), and posts one comment spanning the
 range. The selected lines must lie within the file's MR diff; a selection
 outside the diff is rejected with a message.
 
+CHANGE HINTS                                               *glab-review-changes*
+
+Separately from comments, glab-review marks the lines the MR *changed* with
+gitsigns-style gutter signs when you open a changed file. Only the affected
+lines are marked — there is no full-diff view.
+
+The MR's `/diffs` are fetched at load time and each file's unified diff is
+parsed into per-line hints:
+  - added lines           -> `add_sign`    (`changes.add_hl`)
+  - lines replacing a     -> `change_sign` (`changes.change_hl`)
+    deletion
+  - removed lines with no -> `delete_sign` (`changes.delete_hl`), anchored on
+    replacement              the new-side line that now sits at the deletion
+
+Hints are anchored 1:1 by new-side line number, so — like inline comments —
+they are accurate when your working tree matches the MR's head commit and drift
+if you have local edits. Toggle them with |:GlabReviewToggleChanges|; start
+hidden with `changes.enabled = false`. Change signs sit below inline-comment
+signs, so a commented line keeps its comment marker in the gutter.
+
 ==============================================================================
 11. REACTIONS                                            *glab-review-reactions*
 
@@ -334,12 +360,24 @@ Defaults: >lua
         author_hl = "DiagnosticInfo",
       },
 
+      -- Gutter hints for the lines the MR changed (see |glab-review-changes|).
+      changes = {
+        enabled     = true,         -- show change hints on load
+        add_sign    = "▎",
+        change_sign = "▎",
+        delete_sign = "▁",
+        add_hl      = "DiagnosticSignOk",
+        change_hl   = "DiagnosticSignWarn",
+        delete_hl   = "DiagnosticSignError",
+      },
+
       -- Default normal-mode mappings. Set to false to define your own.
       keymaps = {
-        sync          = "<leader>gms",
-        overview      = "<leader>gmo",
-        toggle_inline = "<leader>gmt",
-        comments      = "<leader>gmc",
+        sync           = "<leader>gms",
+        overview       = "<leader>gmo",
+        toggle_inline  = "<leader>gmt",
+        toggle_changes = "<leader>gmd",
+        comments       = "<leader>gmc",
         changed       = "<leader>gmf",
         react         = "<leader>gmr",
         reply         = "<leader>gmR",
@@ -368,6 +406,9 @@ glab-review.open_overview()                          *glab-review.open_overview(
 
 glab-review.toggle_inline()                          *glab-review.toggle_inline()*
         Toggle inline comment bodies. Same as |:GlabReviewToggleInline|.
+
+glab-review.toggle_changes()                        *glab-review.toggle_changes()*
+        Toggle the change-hint gutter signs. Same as |:GlabReviewToggleChanges|.
 
 glab-review.comments()                                   *glab-review.comments()*
         Open the comment-navigation picker. Same as |:GlabReviewComments|.
@@ -420,11 +461,12 @@ Module layout (under `lua/glab-review/`):
     glab.lua        async `glab api` wrapper
     gitlab.lua      high-level MR operations
     state.lua       in-memory MR model and indexes
-    diff.lua        unified-diff parsing (new->old line map for line codes)
+    diff.lua        unified-diff parsing (line map + changed-line classifier)
     util.lua        coroutine async/await, git helpers, SHA1, notify
     picker.lua      fzf-lua pickers (MR / comments / emoji)
     overview.lua    overview buffer render + save protocol parser
     inline.lua      extmark signs + virtual text + inline creation
+    changes.lua     change-hint gutter signs from the MR diff
     reactions.lua   award emoji + meta-command dispatch
 
 ==============================================================================

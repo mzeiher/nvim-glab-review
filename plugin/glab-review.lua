@@ -19,6 +19,7 @@ end
 cmd("GlabReviewSync", "sync", "Sync MRs for the current branch and pick one")
 cmd("GlabReviewOverview", "open_overview", "Open the MR overview (description + threads)")
 cmd("GlabReviewToggleInline", "toggle_inline", "Toggle inline comment virtual text")
+cmd("GlabReviewToggleChanges", "toggle_changes", "Toggle change-hint gutter signs")
 cmd("GlabReviewComments", "comments", "Pick and jump to any MR comment")
 cmd("GlabReviewChanged", "changed", "Pick changed files (open or send to quickfix)")
 cmd("GlabReviewReact", "react", "React to the comment under the cursor")

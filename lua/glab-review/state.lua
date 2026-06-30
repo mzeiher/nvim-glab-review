@@ -6,7 +6,10 @@
 --   * by_file      : map repo-relative path -> { {discussion, note, line, side}, ... }
 --   * unmapped     : positioned discussions whose line could not be resolved
 --   * note_index   : map note_id -> { discussion, note } for award/reaction lookup
+--   * changes      : map repo-relative path -> changed-line signs (gutter hints)
 local M = {}
+
+local diff = require("glab-review.diff")
 
 --- @class GlabState
 --- @field mr table|nil           raw merge request object from the API
@@ -16,6 +19,7 @@ local M = {}
 --- @field by_file table
 --- @field unmapped table
 --- @field note_index table
+--- @field changes table
 
 --- @type GlabState|nil
 local current = nil
@@ -59,8 +63,10 @@ local function resolve_line(position)
   return nil
 end
 
---- Build the derived indexes from a raw MR object + discussions list.
-function M.load(mr, discussions)
+--- Build the derived indexes from a raw MR object + discussions list. `changes`
+--- is the raw `/diffs` file list (optional); each file's unified diff is parsed
+--- into changed-line gutter hints keyed by path.
+function M.load(mr, discussions, changes)
   current = {
     mr = mr,
     diff_refs = mr.diff_refs,
@@ -69,7 +75,15 @@ function M.load(mr, discussions)
     by_file = {},
     unmapped = {},
     note_index = {},
+    changes = {},
   }
+
+  for _, c in ipairs(changes or {}) do
+    local path = c.new_path or c.old_path
+    if path and c.diff and c.diff ~= "" then
+      current.changes[path] = diff.changed_lines(c.diff)
+    end
+  end
 
   for _, discussion in ipairs(current.discussions) do
     for _, note in ipairs(discussion.notes or {}) do
@@ -111,6 +125,14 @@ function M.inline_for_path(path)
     return {}
   end
   return current.by_file[path] or {}
+end
+
+--- Changed-line signs ({line, kind}) for a repo-relative path, from the MR diff.
+function M.changes_for_path(path)
+  if not current then
+    return {}
+  end
+  return current.changes[path] or {}
 end
 
 function M.note(note_id)

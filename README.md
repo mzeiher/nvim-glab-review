@@ -25,6 +25,10 @@ text with a gutter sign, just like diagnostics.
   comments, and `/meta-commands` (see below).
 - **Inline comments** — gutter signs on commented lines and toggleable virtual
   text showing each thread's notes (`:GlabReviewToggleInline`).
+- **Change hints** — gitsigns-style gutter signs marking the lines the MR
+  changed (added / changed / deleted) when you open a changed file. Only the
+  affected lines are marked — there's no full-diff view
+  (`:GlabReviewToggleChanges`).
 - **Create inline comments** — always start a new thread on the line under the
   cursor (`:GlabReviewComment`). Select lines in Visual mode to post a single
   **multi-line** comment spanning the selection.
@@ -57,6 +61,7 @@ commands and keys:
     "GlabReviewSync",
     "GlabReviewOverview",
     "GlabReviewToggleInline",
+    "GlabReviewToggleChanges",
     "GlabReviewComments",
     "GlabReviewChanged",
     "GlabReviewReact",
@@ -67,6 +72,7 @@ commands and keys:
     { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
     { "<leader>gmo", "<cmd>GlabReviewOverview<cr>",     desc = "glab: overview" },
     { "<leader>gmt", "<cmd>GlabReviewToggleInline<cr>", desc = "glab: toggle inline" },
+    { "<leader>gmd", "<cmd>GlabReviewToggleChanges<cr>",desc = "glab: toggle change hints" },
     { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
     { "<leader>gmf", "<cmd>GlabReviewChanged<cr>",      desc = "glab: changed files" },
     { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
@@ -104,6 +110,7 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewSync` | `<leader>gms` | List MRs for the branch and pick one |
 | `:GlabReviewOverview` | `<leader>gmo` | Open the overview buffer |
 | `:GlabReviewToggleInline` | `<leader>gmt` | Toggle inline comment bodies |
+| `:GlabReviewToggleChanges` | `<leader>gmd` | Toggle change-hint gutter signs |
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
@@ -173,11 +180,21 @@ require("glab-review").setup({
     virt_hl = "Comment",
     author_hl = "DiagnosticInfo",
   },
+  changes = {
+    enabled = true,              -- show change hints on load
+    add_sign = "▎",
+    change_sign = "▎",
+    delete_sign = "▁",
+    add_hl = "DiagnosticSignOk",
+    change_hl = "DiagnosticSignWarn",
+    delete_hl = "DiagnosticSignError",
+  },
   -- Set `keymaps = false` to define your own.
   keymaps = {
     sync = "<leader>gms",
     overview = "<leader>gmo",
     toggle_inline = "<leader>gmt",
+    toggle_changes = "<leader>gmd",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",

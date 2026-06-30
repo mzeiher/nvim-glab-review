@@ -20,8 +20,15 @@ local function load_mr(iid, opts)
     util.err(derr)
     return
   end
+  -- Diffs power the change-hint gutter; a failure here is non-fatal (comments
+  -- still load, just without change signs).
+  local cerr, changes = gitlab.get_changes(iid)
+  if cerr then
+    util.notify("could not load diffs for change hints: " .. cerr, vim.log.levels.WARN)
+    changes = nil
+  end
 
-  state.load(mr, discussions or {})
+  state.load(mr, discussions or {}, changes)
 
   local overview = require("glab-review.overview")
   local inline = require("glab-review.inline")
@@ -33,6 +40,7 @@ local function load_mr(iid, opts)
     overview.open()
   end
   inline.refresh_all()
+  require("glab-review.changes").refresh_all()
 
   local n_inline = 0
   for _, list in pairs(state.get().by_file) do
@@ -88,6 +96,11 @@ function M.toggle_inline()
   require("glab-review.inline").toggle()
 end
 
+--- Toggle the change-hint gutter signs.
+function M.toggle_changes()
+  require("glab-review.changes").toggle()
+end
+
 --- fzf-lua picker over every comment; jump to its location on select.
 function M.comments()
   if not state.is_loaded() then
@@ -140,6 +153,7 @@ local function apply_keymaps()
   map(km.sync, M.sync, "glab-review: sync MRs")
   map(km.overview, M.open_overview, "glab-review: open overview")
   map(km.toggle_inline, M.toggle_inline, "glab-review: toggle inline comments")
+  map(km.toggle_changes, M.toggle_changes, "glab-review: toggle change hints")
   map(km.comments, M.comments, "glab-review: comment picker")
   map(km.changed, M.changed, "glab-review: changed files picker")
   map(km.react, M.react, "glab-review: react at cursor")
@@ -157,6 +171,7 @@ end
 function M.setup(opts)
   config.setup(opts)
   require("glab-review.inline").setup()
+  require("glab-review.changes").setup()
   apply_keymaps()
 end
 

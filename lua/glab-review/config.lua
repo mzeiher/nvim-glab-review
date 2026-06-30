@@ -39,12 +39,27 @@ local defaults = {
     author_hl = "DiagnosticInfo",
   },
 
+  -- Gutter hints marking the lines changed by the MR (relative to its base),
+  -- gitsigns-style. Only affected lines are marked; there is no full-diff view.
+  changes = {
+    -- Whether change hints are shown immediately after load.
+    enabled = true,
+    -- Signs for added / changed (replacing a deletion) / deleted lines.
+    add_sign = "▎",
+    change_sign = "▎",
+    delete_sign = "▁",
+    add_hl = "DiagnosticSignOk",
+    change_hl = "DiagnosticSignWarn",
+    delete_hl = "DiagnosticSignError",
+  },
+
   -- Default key mappings, applied on setup(). Set `keymaps = false` to disable
   -- and map the public functions yourself.
   keymaps = {
     sync = "<leader>gms",
     overview = "<leader>gmo",
     toggle_inline = "<leader>gmt",
+    toggle_changes = "<leader>gmd",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",

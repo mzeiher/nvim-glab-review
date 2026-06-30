@@ -34,4 +34,53 @@ function M.new_line_map(diff_text)
   return map
 end
 
+--- Classify the changed new-side lines of a unified diff for gutter hints.
+---
+--- Walks the hunks tracking the new-side line counter. Added lines that follow
+--- (and "replace") deleted lines are reported as `change`; additions with no
+--- pending deletion are `add`; deleted lines with no replacement surface as a
+--- single `delete` marker anchored at the new-side line that now sits where the
+--- removed content was (the following line, or the last line at EOF).
+---
+--- @param diff_text string  a unified diff body (as returned in `/diffs`)
+--- @return table  list of { line = new_line (1-based), kind = "add"|"change"|"delete" }
+function M.changed_lines(diff_text)
+  local signs = {}
+  local new_ln
+  local pending_del = 0 -- deleted lines not yet "consumed" by an addition
+
+  local function flush_delete()
+    if pending_del > 0 and new_ln then
+      signs[#signs + 1] = { line = new_ln, kind = "delete" }
+    end
+    pending_del = 0
+  end
+
+  for line in (diff_text .. "\n"):gmatch("(.-)\n") do
+    local c = line:match("^@@ %-%d+,?%d* %+(%d+),?%d* @@")
+    if c then
+      flush_delete()
+      new_ln = tonumber(c)
+    elseif new_ln then
+      local tag = line:sub(1, 1)
+      if tag == " " then
+        flush_delete()
+        new_ln = new_ln + 1
+      elseif tag == "+" then
+        local kind = pending_del > 0 and "change" or "add"
+        if pending_del > 0 then
+          pending_del = pending_del - 1
+        end
+        signs[#signs + 1] = { line = new_ln, kind = kind }
+        new_ln = new_ln + 1
+      elseif tag == "-" then
+        pending_del = pending_del + 1
+      end
+      -- "\ No newline at end of file" and anything else is ignored
+    end
+  end
+  flush_delete()
+  return signs
+end
+
 return M
