@@ -29,6 +29,15 @@ local defaults = {
     ["/unresolve"] = { resolve = false },
   },
 
+  overview = {
+    -- How to open the overview window when it is not already visible:
+    --   "vsplit"  vertical split (default)
+    --   "split"   horizontal split
+    --   "tab"     new tab page
+    --   "current" reuse the current window
+    open = "vsplit",
+  },
+
   inline = {
     -- Whether comment bodies (virt_lines) are shown immediately after load.
     virt_text_default = true,

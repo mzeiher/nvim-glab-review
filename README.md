@@ -119,6 +119,11 @@ field is needed. Pass a table to override any default (see
 
 ### The overview buffer
 
+By default the overview opens in a vertical split. Set `overview.open` to
+`"split"`, `"tab"` (new tab page), or `"current"` (reuse the current window) to
+change this. If the overview is already visible — on any tab page — it's
+focused instead of reopened.
+
 The buffer is structured with hidden HTML-comment markers. You edit only inside
 three kinds of region; everything else is read-only context:
 
@@ -162,6 +167,10 @@ Defaults (override any subset):
 ```lua
 require("glab-review").setup({
   glab_cmd = "glab",
+  overview = {
+    -- "vsplit" | "split" | "tab" | "current"
+    open = "vsplit",
+  },
   emojis = {
     "👍 thumbsup", "👎 thumbsdown", "✅ white_check_mark",
     "🎉 tada", "👀 eyes", "🚀 rocket", "❤️ heart", "🤔 thinking",

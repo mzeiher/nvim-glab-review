@@ -202,6 +202,11 @@ The overview is a buffer named `glab-review://mr/<iid>/overview` with
 plugin). It contains the MR description and every general (non-positioned)
 thread.
 
+It opens in a vertical split by default. Set `overview.open` to control this:
+"vsplit" (default), "split" (horizontal), "tab" (new tab page), or "current"
+(reuse the current window). If the overview is already visible on any tab page,
+it is focused instead of reopened.
+
 It is structured with hidden HTML-comment markers. You edit only inside three
 kinds of region; everything else (thread headers, existing note bodies) is
 read-only context that is ignored on save: >
@@ -333,6 +338,12 @@ Defaults: >lua
     require("glab-review").setup({
       -- Executable used for all API access.
       glab_cmd = "glab",
+
+      -- How to open the overview window (see |glab-review-overview|):
+      --   "vsplit" | "split" | "tab" | "current"
+      overview = {
+        open = "vsplit",
+      },
 
       -- Award emojis offered in the reaction picker.
       -- Format: "<display> <api_name>"; only the api_name is sent.

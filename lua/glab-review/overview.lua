@@ -4,6 +4,7 @@
 local state = require("glab-review.state")
 local gitlab = require("glab-review.gitlab")
 local util = require("glab-review.util")
+local config = require("glab-review.config")
 
 local M = {}
 
@@ -140,13 +141,24 @@ local function render(mr, lines_out, c)
   end
 end
 
+-- Any window (across all tabpages) currently showing buffer `b`.
 local function find_win(b)
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    if vim.api.nvim_win_get_buf(win) == b then
-      return win
-    end
+  return vim.fn.win_findbuf(b)[1]
+end
+
+-- Open `b` in a fresh window per the configured `overview.open` strategy.
+local function open_window(b)
+  local how = config.get().overview.open
+  if how == "tab" then
+    vim.cmd("tabnew")
+  elseif how == "split" then
+    vim.cmd("split")
+  elseif how == "current" then
+    -- reuse the current window; no split
+  else -- "vsplit" (default)
+    vim.cmd("vsplit")
   end
-  return nil
+  vim.api.nvim_win_set_buf(0, b)
 end
 
 local function ensure_buffer()
@@ -195,10 +207,10 @@ function M.open()
   end
   local win = find_win(bufnr)
   if win then
+    -- Already visible somewhere (possibly on another tabpage); focus it.
     vim.api.nvim_set_current_win(win)
   else
-    vim.cmd("vsplit")
-    vim.api.nvim_win_set_buf(0, bufnr)
+    open_window(bufnr)
   end
 end
 
