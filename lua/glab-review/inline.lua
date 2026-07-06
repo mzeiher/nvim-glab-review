@@ -42,8 +42,9 @@ local function virt_lines_for(item)
       end
     end
   end
-  if item.discussion.resolved then
-    table.insert(lines, { { "   ✓ resolved", cfg.author_hl } })
+  if item.discussion.resolvable then
+    local hint = item.discussion.resolved and "   ✓ resolved" or "   ○ open"
+    table.insert(lines, { { hint, cfg.author_hl } })
   end
   return lines
 end

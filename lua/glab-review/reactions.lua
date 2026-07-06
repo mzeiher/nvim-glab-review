@@ -72,6 +72,31 @@ local function target_at_cursor()
   return nil
 end
 
+--- Public: toggle the resolved state of the discussion under the cursor.
+function M.resolve_at_cursor()
+  local target = target_at_cursor()
+  if not target then
+    util.notify("no comment under the cursor")
+    return
+  end
+  local entry = state.note(target.note_id)
+  local discussion = entry and entry.discussion
+  if not discussion or not discussion.resolvable then
+    util.notify("this discussion is not resolvable")
+    return
+  end
+  local resolved = not discussion.resolved
+  util.async(function()
+    local err = gitlab.set_resolved(target.iid, target.discussion_id, resolved)
+    if err then
+      util.err(err)
+      return
+    end
+    util.notify(resolved and "discussion resolved" or "discussion unresolved")
+    require("glab-review").reload()
+  end)()
+end
+
 --- Public: react (award emoji) to the comment under the cursor.
 function M.react_at_cursor()
   local target = target_at_cursor()

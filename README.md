@@ -40,6 +40,9 @@ text with a gutter sign, just like diagnostics.
   them or send the selection to the quickfix list (`:GlabReviewChanged`).
 - **React** — award an emoji to the comment under the cursor via an fzf-lua
   picker (`:GlabReviewReact`).
+- **Resolve** — every resolvable thread shows an `○ open` / `✓ resolved` hint
+  (inline, overview, and comment picker); toggle the resolved state of the
+  discussion under the cursor (`:GlabReviewResolve`).
 
 ## Requirements
 
@@ -67,6 +70,7 @@ commands and keys:
     "GlabReviewReact",
     "GlabReviewComment",
     "GlabReviewReply",
+    "GlabReviewResolve",
   },
   keys = {
     { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
@@ -78,6 +82,7 @@ commands and keys:
     { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
     { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new comment" },
     { "<leader>gmR", "<cmd>GlabReviewReply<cr>",        desc = "glab: reply" },
+    { "<leader>gmx", "<cmd>GlabReviewResolve<cr>",      desc = "glab: resolve/unresolve" },
     { "<leader>gmn", "<cmd>GlabReviewComment<cr>", mode = "x", desc = "glab: comment on selection" },
   },
   opts = {},
@@ -116,6 +121,7 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
 | `:GlabReviewComment` | `<leader>gmn` | Create a new comment on the current line / Visual selection |
 | `:GlabReviewReply` | `<leader>gmR` | Reply to the thread under the cursor |
+| `:GlabReviewResolve` | `<leader>gmx` | Toggle resolved state of the discussion under the cursor |
 
 ### The overview buffer
 
@@ -209,6 +215,7 @@ require("glab-review").setup({
     react = "<leader>gmr",
     comment = "<leader>gmn",
     reply = "<leader>gmR",
+    resolve = "<leader>gmx",
   },
 })
 ```

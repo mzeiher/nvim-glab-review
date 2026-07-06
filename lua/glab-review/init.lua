@@ -140,6 +140,11 @@ function M.reply()
   require("glab-review.inline").reply_at_cursor()
 end
 
+--- Toggle the resolved state of the discussion under the cursor.
+function M.resolve()
+  require("glab-review.reactions").resolve_at_cursor()
+end
+
 local function apply_keymaps()
   local km = config.get().keymaps
   if not km then
@@ -159,6 +164,7 @@ local function apply_keymaps()
   map(km.react, M.react, "glab-review: react at cursor")
   map(km.comment, M.comment, "glab-review: new inline comment")
   map(km.reply, M.reply, "glab-review: reply to thread under cursor")
+  map(km.resolve, M.resolve, "glab-review: resolve/unresolve thread under cursor")
   -- Visual-mode: comment on the selected range (multi-line comment).
   if km.comment then
     vim.keymap.set("x", km.comment, ":GlabReviewComment<CR>", {

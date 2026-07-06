@@ -34,3 +34,4 @@ vim.api.nvim_create_user_command("GlabReviewComment", function(o)
 end, { range = true, desc = "Create a new comment on the current line or selection" })
 
 cmd("GlabReviewReply", "reply", "Reply to the thread under the cursor")
+cmd("GlabReviewResolve", "resolve", "Toggle resolved state of the discussion under the cursor")

@@ -78,12 +78,26 @@ function M.pick_comment()
     entries[i] = i .. DELIM .. label
   end
 
+  -- Open/resolved mark for resolvable discussions.
+  local function state_mark(d)
+    if not d.resolvable then
+      return ""
+    end
+    return d.resolved and "✓ " or "○ "
+  end
+
   -- Inline comments grouped by file.
   for path, list in pairs(cur.by_file) do
     for _, item in ipairs(list) do
       local author = item.note.author and item.note.author.username or "?"
       add(
-        ("  %s:%d  @%s  %s"):format(path, item.line, author, util.snippet(item.note.body)),
+        ("  %s%s:%d  @%s  %s"):format(
+          state_mark(item.discussion),
+          path,
+          item.line,
+          author,
+          util.snippet(item.note.body)
+        ),
         { kind = "inline", path = path, line = item.line }
       )
     end
@@ -93,7 +107,7 @@ function M.pick_comment()
   for _, d in ipairs(cur.general) do
     local n = d.notes[1]
     local author = n.author and n.author.username or "?"
-    local mark = d.resolved and "✓ " or ""
+    local mark = state_mark(d)
     add(
       ("  %s💬 @%s  %s"):format(mark, author, util.snippet(n.body)),
       { kind = "general", discussion_id = d.id }

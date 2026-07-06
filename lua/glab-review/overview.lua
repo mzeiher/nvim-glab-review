@@ -112,7 +112,10 @@ local function render(mr, lines_out, c)
       if not note.system then
         local na = note.author and note.author.username or "?"
         local ts = (note.created_at or ""):sub(1, 10)
-        local res = (i == 1 and d.resolved) and "  ✓ resolved" or ""
+        local res = ""
+        if i == 1 and d.resolvable then
+          res = d.resolved and "  ✓ resolved" or "  ○ open"
+        end
         push((i == 1 and "### @%s · %s%s" or "#### ↳ @%s · %s%s"):format(na, ts, res))
         for _, bl in ipairs(vim.split(note.body or "", "\n", { plain = true })) do
           push(bl)

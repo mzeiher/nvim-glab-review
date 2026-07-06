@@ -74,6 +74,7 @@ local defaults = {
     react = "<leader>gmr",
     comment = "<leader>gmn",
     reply = "<leader>gmR",
+    resolve = "<leader>gmx",
   },
 }
 
