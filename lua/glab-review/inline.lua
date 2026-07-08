@@ -145,6 +145,23 @@ local function change_for(iid, path)
   return ("%s is not part of this MR's changes"):format(path)
 end
 
+--- Post `body` as a new inline discussion anchored at `path`:`line`,
+--- resolving the old-side position from the MR's diff. Must run inside
+--- `util.async`; returns err|nil.
+function M.post_inline(iid, path, line, body, diff_refs)
+  if not diff_refs or not diff_refs.head_sha then
+    return "MR has no diff refs; cannot anchor an inline comment"
+  end
+  local err, change = change_for(iid, path)
+  if err or not change then
+    return err or "no change entry"
+  end
+  -- Unchanged lines must be addressed on BOTH sides (old_line + new_line);
+  -- only lines added by the MR go out with new_line alone.
+  local old_line = require("glab-review.diff").old_line_of(change.diff or "", line)
+  return gitlab.create_inline(iid, body, path, line, diff_refs, old_line, change.old_path)
+end
+
 -- Create a brand-new inline thread anchored at path:line.
 local function create_new(iid, path, line, diff_refs)
   if not diff_refs or not diff_refs.head_sha then
@@ -156,17 +173,9 @@ local function create_new(iid, path, line, diff_refs)
       return
     end
     util.async(function()
-      local err, change = change_for(iid, path)
-      if err or not change then
-        util.err(err or "no change entry")
-        return
-      end
-      -- Unchanged lines must be addressed on BOTH sides (old_line + new_line);
-      -- only lines added by the MR go out with new_line alone.
-      local old_line = require("glab-review.diff").old_line_of(change.diff or "", line)
-      local e2 = gitlab.create_inline(iid, input, path, line, diff_refs, old_line, change.old_path)
-      if e2 then
-        util.err("failed to create inline comment: " .. e2)
+      local err = M.post_inline(iid, path, line, input, diff_refs)
+      if err then
+        util.err("failed to create inline comment: " .. err)
         return
       end
       util.notify("inline comment added")

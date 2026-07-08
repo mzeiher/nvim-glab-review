@@ -35,3 +35,13 @@ end, { range = true, desc = "Create a new comment on the current line or selecti
 
 cmd("GlabReviewReply", "reply", "Reply to the thread under the cursor")
 cmd("GlabReviewResolve", "resolve", "Toggle resolved state of the discussion under the cursor")
+cmd("GlabReviewSubmit", "submit", "Submit a review verdict: approve, request changes, or comment")
+
+-- Range-aware: a visual selection suggests a replacement for the whole range.
+vim.api.nvim_create_user_command("GlabReviewSuggest", function(o)
+  if o.range == 2 then
+    require("glab-review").suggest(o.line1, o.line2)
+  else
+    require("glab-review").suggest()
+  end
+end, { range = true, desc = "Suggest a code change for the current line or selection" })

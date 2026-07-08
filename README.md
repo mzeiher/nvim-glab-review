@@ -43,6 +43,13 @@ text with a gutter sign, just like diagnostics.
 - **Resolve** — every resolvable thread shows an `○ open` / `✓ resolved` hint
   (inline, overview, and comment picker); toggle the resolved state of the
   discussion under the cursor (`:GlabReviewResolve`).
+- **Suggest** — turn the current line or a Visual selection into a GitLab
+  suggestion (` ```suggestion ` block) the author can apply with one click;
+  the replacement is edited in a scratch buffer and posted on `:w`
+  (`:GlabReviewSuggest`).
+- **Submit** — hand the MR back with a verdict: approve (tied to the reviewed
+  head commit), request changes, or a plain comment — plus unapprove to take
+  an approval back (`:GlabReviewSubmit`).
 
 ## Requirements
 
@@ -71,6 +78,8 @@ commands and keys:
     "GlabReviewComment",
     "GlabReviewReply",
     "GlabReviewResolve",
+    "GlabReviewSuggest",
+    "GlabReviewSubmit",
   },
   keys = {
     { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
@@ -83,6 +92,9 @@ commands and keys:
     { "<leader>gmn", "<cmd>GlabReviewComment<cr>",      desc = "glab: new comment" },
     { "<leader>gmR", "<cmd>GlabReviewReply<cr>",        desc = "glab: reply" },
     { "<leader>gmx", "<cmd>GlabReviewResolve<cr>",      desc = "glab: resolve/unresolve" },
+    { "<leader>gmS", "<cmd>GlabReviewSuggest<cr>",      desc = "glab: suggest change" },
+    { "<leader>gma", "<cmd>GlabReviewSubmit<cr>",       desc = "glab: submit review verdict" },
+    { "<leader>gmS", "<cmd>GlabReviewSuggest<cr>", mode = "x", desc = "glab: suggest for selection" },
     { "<leader>gmn", "<cmd>GlabReviewComment<cr>", mode = "x", desc = "glab: comment on selection" },
   },
   opts = {},
@@ -122,6 +134,8 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewComment` | `<leader>gmn` | Create a new comment on the current line / Visual selection |
 | `:GlabReviewReply` | `<leader>gmR` | Reply to the thread under the cursor |
 | `:GlabReviewResolve` | `<leader>gmx` | Toggle resolved state of the discussion under the cursor |
+| `:GlabReviewSuggest` | `<leader>gmS` | Suggest a code change for the current line / Visual selection |
+| `:GlabReviewSubmit` | `<leader>gma` | Submit a review verdict: approve, request changes, or comment |
 
 ### The overview buffer
 
@@ -216,6 +230,8 @@ require("glab-review").setup({
     comment = "<leader>gmn",
     reply = "<leader>gmR",
     resolve = "<leader>gmx",
+    suggest = "<leader>gmS",
+    submit = "<leader>gma",
   },
 })
 ```

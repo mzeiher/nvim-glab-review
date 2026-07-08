@@ -81,6 +81,43 @@ function M.create_inline(iid, body, path, new_line, diff_refs, old_line, old_pat
   })
 end
 
+--- Approve the MR. Passing `sha` (the head commit you reviewed) makes GitLab
+--- reject the approval with a 409 if the MR moved on in the meantime.
+function M.approve(iid, sha)
+  return glab.api_await(("%s/%d/approve"):format(BASE, iid), {
+    method = "POST",
+    body = sha and { sha = sha } or nil,
+  })
+end
+
+--- Revoke the current user's approval of the MR.
+function M.unapprove(iid)
+  return glab.api_await(("%s/%d/unapprove"):format(BASE, iid), { method = "POST" })
+end
+
+--- Set the current user's reviewer state to "requested changes" (blocks the
+--- merge). There is no REST endpoint for this — it exists only as a GraphQL
+--- mutation (GitLab 16.11+), which needs the full project path.
+function M.request_changes(project_path, iid)
+  local q = ('mutation { mergeRequestRequestChanges(input: { projectPath: "%s", iid: "%d" }) { errors } }')
+    :format(project_path, iid)
+  local err, res = glab.graphql_await(q)
+  if err then
+    return err
+  end
+  if res and res.errors and res.errors[1] then
+    return res.errors[1].message or "GraphQL error"
+  end
+  local errs = res
+    and res.data
+    and res.data.mergeRequestRequestChanges
+    and res.data.mergeRequestRequestChanges.errors
+  if errs and errs[1] then
+    return table.concat(errs, "; ")
+  end
+  return nil
+end
+
 --- Files changed in the MR. Returns the `/diffs` list: each entry has
 --- new_path, old_path, new_file, renamed_file, deleted_file, ...
 function M.get_changes(iid)

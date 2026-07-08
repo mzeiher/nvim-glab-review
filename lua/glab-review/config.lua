@@ -75,6 +75,8 @@ local defaults = {
     comment = "<leader>gmn",
     reply = "<leader>gmR",
     resolve = "<leader>gmx",
+    suggest = "<leader>gmS",
+    submit = "<leader>gma",
   },
 }
 

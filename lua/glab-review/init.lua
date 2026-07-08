@@ -145,6 +145,16 @@ function M.resolve()
   require("glab-review.reactions").resolve_at_cursor()
 end
 
+--- Suggest a code change for the current line or selected range.
+function M.suggest(line1, line2)
+  require("glab-review.suggest").suggest_at(line1, line2)
+end
+
+--- Submit a review verdict: approve, request changes, or comment.
+function M.submit()
+  require("glab-review.submit").submit()
+end
+
 local function apply_keymaps()
   local km = config.get().keymaps
   if not km then
@@ -165,10 +175,18 @@ local function apply_keymaps()
   map(km.comment, M.comment, "glab-review: new inline comment")
   map(km.reply, M.reply, "glab-review: reply to thread under cursor")
   map(km.resolve, M.resolve, "glab-review: resolve/unresolve thread under cursor")
-  -- Visual-mode: comment on the selected range (multi-line comment).
+  map(km.suggest, M.suggest, "glab-review: suggest change for current line")
+  map(km.submit, M.submit, "glab-review: submit review verdict")
+  -- Visual-mode: comment on / suggest a change for the selected range.
   if km.comment then
     vim.keymap.set("x", km.comment, ":GlabReviewComment<CR>", {
       desc = "glab-review: comment on selection",
+      silent = true,
+    })
+  end
+  if km.suggest then
+    vim.keymap.set("x", km.suggest, ":GlabReviewSuggest<CR>", {
+      desc = "glab-review: suggest change for selection",
       silent = true,
     })
   end
