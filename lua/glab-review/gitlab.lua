@@ -65,15 +65,19 @@ function M.create_positioned(iid, body, position)
 end
 
 --- Create a single-line inline discussion anchored to `path`:`new_line`.
-function M.create_inline(iid, body, path, new_line, diff_refs)
+--- Lines the MR did not change must also carry their old-side position
+--- (GitLab requires both `old_line` and `new_line` there); pass `old_line`
+--- as nil only for lines added by the MR. `old_path` covers renames.
+function M.create_inline(iid, body, path, new_line, diff_refs, old_line, old_path)
   return M.create_positioned(iid, body, {
     position_type = "text",
     base_sha = diff_refs.base_sha,
     head_sha = diff_refs.head_sha,
     start_sha = diff_refs.start_sha,
     new_path = path,
-    old_path = path,
+    old_path = old_path or path,
     new_line = new_line,
+    old_line = old_line,
   })
 end
 

@@ -130,6 +130,21 @@ local function reply_to(iid, discussion_id, label)
   end)
 end
 
+-- Fetch the MR change entry for `path` (matching either side of a rename).
+-- Runs inside async; returns (err, change).
+local function change_for(iid, path)
+  local err, files = gitlab.get_changes(iid)
+  if err then
+    return err
+  end
+  for _, c in ipairs(files or {}) do
+    if c.new_path == path or c.old_path == path then
+      return nil, c
+    end
+  end
+  return ("%s is not part of this MR's changes"):format(path)
+end
+
 -- Create a brand-new inline thread anchored at path:line.
 local function create_new(iid, path, line, diff_refs)
   if not diff_refs or not diff_refs.head_sha then
@@ -141,9 +156,17 @@ local function create_new(iid, path, line, diff_refs)
       return
     end
     util.async(function()
-      local err = gitlab.create_inline(iid, input, path, line, diff_refs)
-      if err then
-        util.err("failed to create inline comment: " .. err)
+      local err, change = change_for(iid, path)
+      if err or not change then
+        util.err(err or "no change entry")
+        return
+      end
+      -- Unchanged lines must be addressed on BOTH sides (old_line + new_line);
+      -- only lines added by the MR go out with new_line alone.
+      local old_line = require("glab-review.diff").old_line_of(change.diff or "", line)
+      local e2 = gitlab.create_inline(iid, input, path, line, diff_refs, old_line, change.old_path)
+      if e2 then
+        util.err("failed to create inline comment: " .. e2)
         return
       end
       util.notify("inline comment added")
@@ -160,24 +183,13 @@ local function create_multiline(iid, path, line1, line2, diff_refs)
     return
   end
   util.async(function()
-    local err, files = require("glab-review.gitlab").get_changes(iid)
-    if err then
-      util.err(err)
-      return
-    end
-    local diff_text
-    for _, c in ipairs(files or {}) do
-      if c.new_path == path or c.old_path == path then
-        diff_text = c.diff
-        break
-      end
-    end
-    if not diff_text then
-      util.err(("%s is not part of this MR's changes"):format(path))
+    local err, change = change_for(iid, path)
+    if err or not change then
+      util.err(err or "no change entry")
       return
     end
 
-    local map = require("glab-review.diff").new_line_map(diff_text)
+    local map = require("glab-review.diff").new_line_map(change.diff or "")
     local old1, old2 = map[line1], map[line2]
     if not old1 or not old2 then
       util.err("selected range is not within the MR diff for this file")

@@ -34,6 +34,47 @@ function M.new_line_map(diff_text)
   return map
 end
 
+--- Old-side line number of a new-side line, for building comment positions.
+---
+--- GitLab's discussions API addresses added lines with `new_line` only, but
+--- lines unchanged by the MR need BOTH `old_line` and `new_line`. This walks
+--- the hunks tracking the old/new counters; for new-side lines outside any
+--- hunk the old line is extrapolated from the surrounding hunks' offset.
+---
+--- @param diff_text string  a unified diff body (as returned in `/diffs`)
+--- @param new_line integer  1-based new-side line number
+--- @return integer|nil old_line  nil when the MR added that line
+function M.old_line_of(diff_text, new_line)
+  local offset = 0 -- old - new, valid in unchanged regions between hunks
+  local old_ln, new_ln
+  for line in (diff_text .. "\n"):gmatch("(.-)\n") do
+    local a, c = line:match("^@@ %-(%d+),?%d* %+(%d+),?%d* @@")
+    if a then
+      old_ln, new_ln = tonumber(a), tonumber(c)
+      if new_line < new_ln then
+        break -- target sits in the unchanged region before this hunk
+      end
+    elseif old_ln then
+      local tag = line:sub(1, 1)
+      if tag == " " then
+        if new_ln == new_line then
+          return old_ln
+        end
+        old_ln, new_ln = old_ln + 1, new_ln + 1
+      elseif tag == "+" then
+        if new_ln == new_line then
+          return nil -- added by the MR: no old-side counterpart
+        end
+        new_ln = new_ln + 1
+      elseif tag == "-" then
+        old_ln = old_ln + 1
+      end
+      offset = old_ln - new_ln
+    end
+  end
+  return new_line + offset
+end
+
 --- Classify the changed new-side lines of a unified diff for gutter hints.
 ---
 --- Walks the hunks tracking the new-side line counter. Added lines that follow
