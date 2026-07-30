@@ -132,10 +132,36 @@ loaded state.
 :GlabReviewToggleInline Toggle the inline comment bodies (virtual text). Gutter
                         signs always remain.
 
+                                                      *:GlabReviewToggleResolved*
+:GlabReviewToggleResolved
+                        Show or hide resolved threads. Hidden threads disappear
+                        from the gutter (sign and body), the overview buffer and
+                        the |:GlabReviewComments| picker, so only what still
+                        needs attention is on screen. The overview header and the
+                        load message report how many are hidden. Start hidden
+                        with `hide_resolved = true`.
+
                                                        *:GlabReviewToggleChanges*
 :GlabReviewToggleChanges
                         Toggle the change-hint gutter signs (see
                         |glab-review-changes|).
+
+                                                       *:GlabReviewToggleRemoved*
+:GlabReviewToggleRemoved
+                        Toggle the lines the MR removed, shown inline as virtual
+                        text above the place they were removed from. Off by
+                        default: while on, the code below each removal is pushed
+                        down by as many lines as were deleted. Independent of
+                        |:GlabReviewToggleChanges|. See |glab-review-removed|.
+
+                                                                *:GlabReviewHunk*
+:GlabReviewHunk         Show the MR diff hunk around the cursor in a float,
+                        including the lines the MR removed (which are not in the
+                        buffer at all). Rendered as a `diff` buffer, so +/-
+                        lines are highlighted as usual. Invoke it again to enter
+                        the float and scroll a long hunk; it closes on cursor
+                        move. Nothing is written into the buffer. See
+                        |glab-review-changes|.
 
                                                             *:GlabReviewComments*
 :GlabReviewComments     fzf-lua picker over every comment of the loaded MR.
@@ -184,7 +210,10 @@ normal-mode mappings are defined:
     <leader>gms     |:GlabReviewSync|
     <leader>gmo     |:GlabReviewOverview|
     <leader>gmt     |:GlabReviewToggleInline|
+    <leader>gmT     |:GlabReviewToggleResolved|
     <leader>gmd     |:GlabReviewToggleChanges|
+    <leader>gmD     |:GlabReviewToggleRemoved|
+    <leader>gmh     |:GlabReviewHunk|
     <leader>gmc     |:GlabReviewComments|
     <leader>gmf     |:GlabReviewChanged|
     <leader>gmr     |:GlabReviewReact|
@@ -278,6 +307,26 @@ Rendering:
   - A gutter sign (`sign_text`, default "|") marks each commented line.
   - With bodies enabled (|:GlabReviewToggleInline|), the thread's notes are
     shown as virtual text below the line.
+  - Resolved threads are skipped entirely while |:GlabReviewToggleResolved| has
+    them hidden — no sign, no body.
+
+RESOLVED THREADS                                          *glab-review-resolved*
+
+Settled discussions add up: on a long-running MR most of the gutter can end up
+marking threads that are already resolved. |:GlabReviewToggleResolved| filters
+them out of every view at once — inline signs and bodies, the overview buffer,
+and the |:GlabReviewComments| picker — leaving only what is still open.
+
+The filter is a view state, not a fetch option: resolved threads stay in memory
+and reappear the moment you toggle back. Nothing is hidden silently — the
+overview's "Threads" header appends "N resolved hidden", the load message does
+the same, and toggling reports the count. Set `hide_resolved = true` to start
+every MR with the quiet view.
+
+A hidden thread is not there as far as the cursor is concerned:
+|:GlabReviewReply|, |:GlabReviewReact| and |:GlabReviewResolve| will not find it,
+and the overview renders no reply region for it. Toggle it back into view first —
+for example to unresolve a thread you resolved by mistake.
 
 Creating: |:GlabReviewComment| always anchors a NEW comment to the current
 line on the new side of the diff (this works for lines present in the MR diff's
@@ -312,6 +361,35 @@ if you have local edits. Toggle them with |:GlabReviewToggleChanges|; start
 hidden with `changes.enabled = false`. Change signs sit below inline-comment
 signs, so a commented line keeps its comment marker in the gutter.
 
+REMOVED LINES                                              *glab-review-removed*
+
+The buffer is the new side of the diff: added and changed lines are there to be
+marked, but lines the MR removed are in no buffer at all. Three layers expose
+them, quietest first — all off the same parsed diff, so none of them costs an
+extra request:
+
+  1. The sign column, next to |diagnostics|: a delete sign reports how many lines
+     went away at that spot by appending the count, `▁3`, or `▁+` for ten or
+     more. This only applies when `delete_sign` is one cell wide (a 'signcolumn'
+     cell is two columns); set `changes.delete_count = false` for a bare marker.
+
+  2. |:GlabReviewHunk| shows the whole hunk around the cursor — removed lines,
+     added lines and context — in a floating window on demand, leaving the buffer
+     untouched.
+
+  3. |:GlabReviewToggleRemoved| renders the removed lines as virtual text above
+     the place they were removed from, prefixed with `changes.removed_prefix`
+     (default "- ") and highlighted with `changes.removed_hl` (default
+     |hl-DiffDelete|). Tabs in the removed text are expanded to 'tabstop', which
+     virtual text does not honour on its own.
+
+     This is the loud layer: virtual lines push the code below each removal down
+     while they are on, which is why it starts off. Set
+     `changes.show_removed = true` to have it on from the first load.
+
+Layers 1 and 3 toggle independently, so |:GlabReviewToggleChanges| can be off
+while removed lines are shown, giving a plain before/after read of the file.
+
 ==============================================================================
 11. REACTIONS                                            *glab-review-reactions*
 
@@ -338,6 +416,10 @@ Defaults: >lua
     require("glab-review").setup({
       -- Executable used for all API access.
       glab_cmd = "glab",
+
+      -- Start with resolved threads hidden everywhere (gutter, overview,
+      -- picker). See |glab-review-resolved|.
+      hide_resolved = false,
 
       -- How to open the overview window (see |glab-review-overview|):
       --   "vsplit" | "split" | "tab" | "current"
@@ -380,14 +462,24 @@ Defaults: >lua
         add_hl      = "DiagnosticSignOk",
         change_hl   = "DiagnosticSignWarn",
         delete_hl   = "DiagnosticSignError",
+        -- Append the removed-line count to a delete sign ("▁3", "▁+" for 10 or
+        -- more); see |glab-review-removed|.
+        delete_count = true,
+        -- Show the removed lines inline as virtual text (shifts code down).
+        show_removed   = false,
+        removed_prefix = "- ",
+        removed_hl     = "DiffDelete",
       },
 
       -- Default normal-mode mappings. Set to false to define your own.
       keymaps = {
-        sync           = "<leader>gms",
-        overview       = "<leader>gmo",
-        toggle_inline  = "<leader>gmt",
-        toggle_changes = "<leader>gmd",
+        sync            = "<leader>gms",
+        overview        = "<leader>gmo",
+        toggle_inline   = "<leader>gmt",
+        toggle_resolved = "<leader>gmT",
+        toggle_changes  = "<leader>gmd",
+        toggle_removed  = "<leader>gmD",
+        hunk            = "<leader>gmh",
         comments       = "<leader>gmc",
         changed       = "<leader>gmf",
         react         = "<leader>gmr",
@@ -418,8 +510,18 @@ glab-review.open_overview()                          *glab-review.open_overview(
 glab-review.toggle_inline()                          *glab-review.toggle_inline()*
         Toggle inline comment bodies. Same as |:GlabReviewToggleInline|.
 
+glab-review.toggle_resolved()                      *glab-review.toggle_resolved()*
+        Show/hide resolved threads. Same as |:GlabReviewToggleResolved|.
+
 glab-review.toggle_changes()                        *glab-review.toggle_changes()*
         Toggle the change-hint gutter signs. Same as |:GlabReviewToggleChanges|.
+
+glab-review.toggle_removed()                        *glab-review.toggle_removed()*
+        Toggle the removed lines shown inline. Same as
+        |:GlabReviewToggleRemoved|.
+
+glab-review.hunk()                                           *glab-review.hunk()*
+        Preview the MR diff hunk at the cursor. Same as |:GlabReviewHunk|.
 
 glab-review.comments()                                   *glab-review.comments()*
         Open the comment-navigation picker. Same as |:GlabReviewComments|.
@@ -471,13 +573,14 @@ Module layout (under `lua/glab-review/`):
     config.lua      defaults and merge
     glab.lua        async `glab api` wrapper
     gitlab.lua      high-level MR operations
-    state.lua       in-memory MR model and indexes
-    diff.lua        unified-diff parsing (line map + changed-line classifier)
+    state.lua       in-memory MR model, indexes and the resolved-view filter
+    diff.lua        unified-diff parsing (line map, changed-line classifier,
+                    hunk splitter)
     util.lua        coroutine async/await, git helpers, SHA1, notify
     picker.lua      fzf-lua pickers (MR / comments / emoji)
     overview.lua    overview buffer render + save protocol parser
     inline.lua      extmark signs + virtual text + inline creation
-    changes.lua     change-hint gutter signs from the MR diff
+    changes.lua     change-hint signs, inline removed lines, hunk preview
     reactions.lua   award emoji + meta-command dispatch
 
 ==============================================================================

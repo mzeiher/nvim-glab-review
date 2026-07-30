@@ -5,6 +5,10 @@ local defaults = {
   -- Executable used for all API access.
   glab_cmd = "glab",
 
+  -- Start with resolved threads hidden everywhere (gutter, overview, picker).
+  -- Toggle at runtime with `:GlabReviewToggleResolved`.
+  hide_resolved = false,
+
   -- Award emojis offered in the fzf-lua reaction picker.
   -- Each entry is "<display> <api_name>"; only the api_name is sent to GitLab.
   emojis = {
@@ -60,6 +64,16 @@ local defaults = {
     add_hl = "DiagnosticSignOk",
     change_hl = "DiagnosticSignWarn",
     delete_hl = "DiagnosticSignError",
+    -- Append the number of removed lines to a delete sign ("▁3", "▁+" for 10+),
+    -- since removed content is invisible in the working tree. Only applied when
+    -- `delete_sign` is a single cell wide.
+    delete_count = true,
+    -- Show the lines the MR removed as virtual text above where they were.
+    -- Off by default: it pushes the code below each removal down. Toggle with
+    -- `:GlabReviewToggleRemoved`.
+    show_removed = false,
+    removed_prefix = "- ",
+    removed_hl = "DiffDelete",
   },
 
   -- Default key mappings, applied on setup(). Set `keymaps = false` to disable
@@ -68,7 +82,10 @@ local defaults = {
     sync = "<leader>gms",
     overview = "<leader>gmo",
     toggle_inline = "<leader>gmt",
+    toggle_resolved = "<leader>gmT",
     toggle_changes = "<leader>gmd",
+    toggle_removed = "<leader>gmD",
+    hunk = "<leader>gmh",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",

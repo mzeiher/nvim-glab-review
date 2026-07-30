@@ -46,8 +46,13 @@ local function load_mr(iid, opts)
   for _, list in pairs(state.get().by_file) do
     n_inline = n_inline + #list
   end
-  util.notify(("loaded !%d — %d threads, %d inline, %d unmapped"):format(
-    iid, #state.get().general, n_inline, #state.get().unmapped))
+  local hidden = state.hidden_count()
+  util.notify(("loaded !%d — %d threads, %d inline, %d unmapped%s"):format(
+    iid,
+    #state.get().general,
+    n_inline,
+    #state.get().unmapped,
+    hidden > 0 and (" (%d resolved hidden)"):format(hidden) or ""))
 end
 
 --- Reload the currently loaded MR from the server (after a mutation).
@@ -96,9 +101,33 @@ function M.toggle_inline()
   require("glab-review.inline").toggle()
 end
 
+--- Toggle whether resolved threads are shown at all — in the gutter, the
+--- overview and the comment picker — so settled discussions stop taking up
+--- room while reviewing.
+function M.toggle_resolved()
+  state.set_hide_resolved(not state.hide_resolved())
+  require("glab-review.inline").refresh_all()
+  require("glab-review.overview").refresh()
+  if state.hide_resolved() then
+    util.notify(("resolved threads hidden (%d)"):format(state.hidden_count()))
+  else
+    util.notify("resolved threads shown")
+  end
+end
+
 --- Toggle the change-hint gutter signs.
 function M.toggle_changes()
   require("glab-review.changes").toggle()
+end
+
+--- Toggle the lines removed by the MR, shown inline as virtual text.
+function M.toggle_removed()
+  require("glab-review.changes").toggle_removed()
+end
+
+--- Preview the MR diff hunk around the cursor (shows the removed lines).
+function M.hunk()
+  require("glab-review.changes").preview_hunk()
 end
 
 --- fzf-lua picker over every comment; jump to its location on select.
@@ -168,7 +197,10 @@ local function apply_keymaps()
   map(km.sync, M.sync, "glab-review: sync MRs")
   map(km.overview, M.open_overview, "glab-review: open overview")
   map(km.toggle_inline, M.toggle_inline, "glab-review: toggle inline comments")
+  map(km.toggle_resolved, M.toggle_resolved, "glab-review: toggle resolved threads")
   map(km.toggle_changes, M.toggle_changes, "glab-review: toggle change hints")
+  map(km.toggle_removed, M.toggle_removed, "glab-review: toggle removed lines inline")
+  map(km.hunk, M.hunk, "glab-review: preview MR diff hunk at cursor")
   map(km.comments, M.comments, "glab-review: comment picker")
   map(km.changed, M.changed, "glab-review: changed files picker")
   map(km.react, M.react, "glab-review: react at cursor")
@@ -194,6 +226,7 @@ end
 
 function M.setup(opts)
   config.setup(opts)
+  state.set_hide_resolved(config.get().hide_resolved)
   require("glab-review.inline").setup()
   require("glab-review.changes").setup()
   apply_keymaps()

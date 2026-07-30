@@ -25,10 +25,19 @@ text with a gutter sign, just like diagnostics.
   comments, and `/meta-commands` (see below).
 - **Inline comments** — gutter signs on commented lines and toggleable virtual
   text showing each thread's notes (`:GlabReviewToggleInline`).
+- **Hide settled threads** — toggle resolved threads out of the gutter, the
+  overview and the picker in one go, so only what still needs attention is on
+  screen (`:GlabReviewToggleResolved`, or start that way with
+  `hide_resolved = true`).
 - **Change hints** — gitsigns-style gutter signs marking the lines the MR
   changed (added / changed / deleted) when you open a changed file. Only the
   affected lines are marked — there's no full-diff view
-  (`:GlabReviewToggleChanges`).
+  (`:GlabReviewToggleChanges`). A delete sign also carries how many lines went
+  away there (`▁3`), since removed content is nowhere in your working tree.
+- **Removed lines** — see what the MR deleted, which exists nowhere in your
+  working tree: as a float for the hunk under the cursor (`:GlabReviewHunk`), or
+  inlined as virtual text above where it was (`:GlabReviewToggleRemoved`, off by
+  default since it pushes the code down).
 - **Create inline comments** — always start a new thread on the line under the
   cursor (`:GlabReviewComment`). Select lines in Visual mode to post a single
   **multi-line** comment spanning the selection.
@@ -71,7 +80,10 @@ commands and keys:
     "GlabReviewSync",
     "GlabReviewOverview",
     "GlabReviewToggleInline",
+    "GlabReviewToggleResolved",
     "GlabReviewToggleChanges",
+    "GlabReviewToggleRemoved",
+    "GlabReviewHunk",
     "GlabReviewComments",
     "GlabReviewChanged",
     "GlabReviewReact",
@@ -85,7 +97,10 @@ commands and keys:
     { "<leader>gms", "<cmd>GlabReviewSync<cr>",         desc = "glab: sync MRs" },
     { "<leader>gmo", "<cmd>GlabReviewOverview<cr>",     desc = "glab: overview" },
     { "<leader>gmt", "<cmd>GlabReviewToggleInline<cr>", desc = "glab: toggle inline" },
+    { "<leader>gmT", "<cmd>GlabReviewToggleResolved<cr>",desc = "glab: toggle resolved threads" },
     { "<leader>gmd", "<cmd>GlabReviewToggleChanges<cr>",desc = "glab: toggle change hints" },
+    { "<leader>gmD", "<cmd>GlabReviewToggleRemoved<cr>",desc = "glab: toggle removed lines" },
+    { "<leader>gmh", "<cmd>GlabReviewHunk<cr>",         desc = "glab: preview hunk at cursor" },
     { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
     { "<leader>gmf", "<cmd>GlabReviewChanged<cr>",      desc = "glab: changed files" },
     { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
@@ -127,7 +142,10 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewSync` | `<leader>gms` | List MRs for the branch and pick one |
 | `:GlabReviewOverview` | `<leader>gmo` | Open the overview buffer |
 | `:GlabReviewToggleInline` | `<leader>gmt` | Toggle inline comment bodies |
+| `:GlabReviewToggleResolved` | `<leader>gmT` | Show / hide resolved threads everywhere |
 | `:GlabReviewToggleChanges` | `<leader>gmd` | Toggle change-hint gutter signs |
+| `:GlabReviewToggleRemoved` | `<leader>gmD` | Toggle the MR's removed lines shown inline |
+| `:GlabReviewHunk` | `<leader>gmh` | Preview the MR diff hunk at the cursor (incl. removed lines) |
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
@@ -187,6 +205,7 @@ Defaults (override any subset):
 ```lua
 require("glab-review").setup({
   glab_cmd = "glab",
+  hide_resolved = false,         -- start with resolved threads hidden
   overview = {
     -- "vsplit" | "split" | "tab" | "current"
     open = "vsplit",
@@ -217,13 +236,20 @@ require("glab-review").setup({
     add_hl = "DiagnosticSignOk",
     change_hl = "DiagnosticSignWarn",
     delete_hl = "DiagnosticSignError",
+    delete_count = true,         -- append the removed-line count ("▁3")
+    show_removed = false,        -- removed lines inline (shifts code down)
+    removed_prefix = "- ",
+    removed_hl = "DiffDelete",
   },
   -- Set `keymaps = false` to define your own.
   keymaps = {
     sync = "<leader>gms",
     overview = "<leader>gmo",
     toggle_inline = "<leader>gmt",
+    toggle_resolved = "<leader>gmT",
     toggle_changes = "<leader>gmd",
+    toggle_removed = "<leader>gmD",
+    hunk = "<leader>gmh",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",
@@ -252,6 +278,39 @@ counted in the load summary.
 New inline comments created with `:GlabReviewComment` are anchored to the
 current line on the new side of the diff; this works for lines present in the
 MR diff's new revision.
+
+## Seeing what the MR changed
+
+You review the working tree, which only holds the **new** side of the diff: added
+and changed lines are there to be marked, but lines the MR *removed* exist
+nowhere in the buffer. Three layers cover that, quietest first — pick what you
+want on and toggle the rest.
+
+**1. The sign column** (always on, next to diagnostics):
+
+| Sign | Meaning |
+| --- | --- |
+| `▎` (`add_hl`) | line added by the MR |
+| `▎` (`change_hl`) | line that replaced a removed line |
+| `▁3` (`delete_hl`) | 3 lines were removed here, nothing replaced them |
+
+The count on the delete sign is the one piece of "invisible" information worth
+having at a glance; set `changes.delete_count = false` for a bare marker.
+
+**2. Hunk preview on demand** — `:GlabReviewHunk` shows the diff hunk around the
+cursor in a floating window (`diff`-highlighted, so `-` lines read as removals).
+Press it a second time to enter the float and scroll a long hunk; it closes as
+soon as you move the cursor. The buffer is not touched.
+
+**3. Removed lines inline** — `:GlabReviewToggleRemoved` renders the deleted text
+as virtual lines above the spot it was removed from, prefixed with `- ` in
+`DiffDelete`. This is the loud option: while it's on, code below each removal is
+pushed down by as many lines as the MR deleted, so it's **off by default**. Start
+it on with `changes.show_removed = true`, and restyle with
+`changes.removed_prefix` / `changes.removed_hl`.
+
+The gutter signs and the inline removed lines toggle independently — you can run
+removed lines with `:GlabReviewToggleChanges` off for a bare before/after read.
 
 ## Documentation
 

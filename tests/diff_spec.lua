@@ -95,6 +95,46 @@ local ccd = diff.changed_lines(dcd)
 check("changedelete: addition at line 1 is a change", find_kind(ccd, 1) == "change")
 check("changedelete: leftover deletion marked delete", find_kind(ccd, 2) == "delete")
 
+-- Removed text rides along with the signs: the buffer holds the new side only,
+-- so this is the only source for what the MR deleted.
+local function find_sign(list, ln)
+  for _, s in ipairs(list) do
+    if s.line == ln then
+      return s
+    end
+  end
+end
+check("removed text: change at 2 carries 'old2'", find_sign(cl, 2).removed[1] == "old2")
+check("removed text: pure add carries none", find_sign(cl, 3).removed == nil)
+check("removed text: delete marker carries 'gone'", find_sign(cdel, 2).removed[1] == "gone")
+check(
+  "removed text: change takes 'a', leftover delete keeps 'b'",
+  find_sign(ccd, 1).removed[1] == "a"
+    and #find_sign(ccd, 2).removed == 1
+    and find_sign(ccd, 2).removed[1] == "b"
+)
+
+-- hunks(): each hunk keeps its raw body and its new-side span, so a cursor line
+-- can be matched to the hunk it belongs to.
+local hs = diff.hunks(d)
+check("hunks: one hunk", #hs == 1)
+check("hunks: header kept", hs[1].header == "@@ -1,4 +1,5 @@")
+check("hunks: body has all 6 lines", #hs[1].lines == 6)
+check("hunks: spans new 1..5", hs[1].new_start == 1 and hs[1].new_last == 5)
+check("hunk_at: line 3 hits the hunk", diff.hunk_at(hs, 3) == hs[1])
+check("hunk_at: line 9 misses", diff.hunk_at(hs, 9) == nil)
+
+local hs2 = diff.hunks(d2)
+check("hunks: two hunks", #hs2 == 2)
+check("hunks: second spans new 50..51", hs2[2].new_start == 50 and hs2[2].new_last == 51)
+check("hunk_at: line 51 hits the second hunk", diff.hunk_at(hs2, 51) == hs2[2])
+check("hunk_at: line 30 between hunks misses", diff.hunk_at(hs2, 30) == nil)
+
+-- A deletion-only hunk collapses to the line the removed content sat in front of.
+local hdel = diff.hunks(table.concat({ "@@ -1,2 +1,1 @@", " keep", "-gone" }, "\n"))
+check("hunks: deletion-only spans new 1..1", hdel[1].new_start == 1 and hdel[1].new_last == 1)
+check("hunk_at: the surviving line hits it", diff.hunk_at(hdel, 1) == hdel[1])
+
 if failures > 0 then
   io.write(("\n%d failure(s)\n"):format(failures))
   vim.cmd("cquit 1")

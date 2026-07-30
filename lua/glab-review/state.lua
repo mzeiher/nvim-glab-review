@@ -7,6 +7,10 @@
 --   * unmapped     : positioned discussions whose line could not be resolved
 --   * note_index   : map note_id -> { discussion, note } for award/reaction lookup
 --   * changes      : map repo-relative path -> changed-line signs (gutter hints)
+--   * hunks        : map repo-relative path -> parsed diff hunks (for previews)
+--
+-- The lookup helpers honour one view filter, `hide_resolved`, so a reviewer can
+-- mute threads that are already settled without reloading.
 local M = {}
 
 local diff = require("glab-review.diff")
@@ -20,9 +24,14 @@ local diff = require("glab-review.diff")
 --- @field unmapped table
 --- @field note_index table
 --- @field changes table
+--- @field hunks table
 
 --- @type GlabState|nil
 local current = nil
+
+-- View filter: when true, resolved threads are omitted from every lookup
+-- helper, so they disappear from the gutter, the overview and the picker.
+local hide_resolved = false
 
 function M.clear()
   current = nil
@@ -76,12 +85,14 @@ function M.load(mr, discussions, changes)
     unmapped = {},
     note_index = {},
     changes = {},
+    hunks = {},
   }
 
   for _, c in ipairs(changes or {}) do
     local path = c.new_path or c.old_path
     if path and c.diff and c.diff ~= "" then
       current.changes[path] = diff.changed_lines(c.diff)
+      current.hunks[path] = diff.hunks(c.diff)
     end
   end
 
@@ -119,20 +130,85 @@ function M.load(mr, discussions, changes)
   return current
 end
 
---- Lookup helpers used by the UI modules.
+-- ---------------------------------------------------------------------------
+-- View filter
+-- ---------------------------------------------------------------------------
+
+--- Hide (true) or show (false) resolved threads in every lookup helper.
+function M.set_hide_resolved(v)
+  hide_resolved = v and true or false
+end
+
+function M.hide_resolved()
+  return hide_resolved
+end
+
+--- Whether a discussion passes the current view filter.
+function M.visible(discussion)
+  return not (hide_resolved and discussion.resolved)
+end
+
+--- How many threads the filter is currently hiding (0 when it is off).
+function M.hidden_count()
+  if not current or not hide_resolved then
+    return 0
+  end
+  local n = 0
+  for _, d in ipairs(current.discussions) do
+    if d.resolved then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- ---------------------------------------------------------------------------
+-- Lookup helpers used by the UI modules (all filtered)
+-- ---------------------------------------------------------------------------
+
 function M.inline_for_path(path)
   if not current then
     return {}
   end
-  return current.by_file[path] or {}
+  local out = {}
+  for _, item in ipairs(current.by_file[path] or {}) do
+    if M.visible(item.discussion) then
+      out[#out + 1] = item
+    end
+  end
+  return out
 end
 
---- Changed-line signs ({line, kind}) for a repo-relative path, from the MR diff.
+--- General (non-positioned) threads, as rendered in the overview.
+function M.general()
+  if not current then
+    return {}
+  end
+  return vim.tbl_filter(M.visible, current.general)
+end
+
+--- How many general threads the filter is hiding from the overview.
+function M.general_hidden()
+  if not current then
+    return 0
+  end
+  return #current.general - #M.general()
+end
+
+--- Changed-line signs ({line, kind, removed}) for a repo-relative path.
 function M.changes_for_path(path)
   if not current then
     return {}
   end
   return current.changes[path] or {}
+end
+
+--- Parsed diff hunks for a repo-relative path, for the hunk preview.
+function M.hunks_for_path(path)
+  if not current then
+    return {}
+  end
+  return current.hunks[path] or {}
 end
 
 function M.note(note_id)

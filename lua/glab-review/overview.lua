@@ -98,11 +98,15 @@ local function render(mr, lines_out, c)
   push(END)
   push("")
 
-  local cur = state.get()
-  push(("## Threads (%d)"):format(#cur.general))
+  -- Resolved threads are omitted while the filter is on; say so instead of
+  -- silently showing a shorter list.
+  local threads = state.general()
+  local hidden = state.general_hidden()
+  local suffix = hidden > 0 and (" — %d resolved hidden"):format(hidden) or ""
+  push(("## Threads (%d)%s"):format(#threads, suffix))
   push("")
 
-  for _, d in ipairs(cur.general) do
+  for _, d in ipairs(threads) do
     local note1 = d.notes[1]
     local start_ln = push(thread_start(d.id, d.resolved, d.resolvable))
     c.thread_line[d.id] = start_ln

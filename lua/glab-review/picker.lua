@@ -86,9 +86,9 @@ function M.pick_comment()
     return d.resolved and "✓ " or "○ "
   end
 
-  -- Inline comments grouped by file.
-  for path, list in pairs(cur.by_file) do
-    for _, item in ipairs(list) do
+  -- Inline comments grouped by file (respecting the resolved filter).
+  for path in pairs(cur.by_file) do
+    for _, item in ipairs(state.inline_for_path(path)) do
       local author = item.note.author and item.note.author.username or "?"
       add(
         ("  %s%s:%d  @%s  %s"):format(
@@ -104,7 +104,7 @@ function M.pick_comment()
   end
 
   -- General threads (live in the overview buffer).
-  for _, d in ipairs(cur.general) do
+  for _, d in ipairs(state.general()) do
     local n = d.notes[1]
     local author = n.author and n.author.username or "?"
     local mark = state_mark(d)
@@ -115,7 +115,7 @@ function M.pick_comment()
   end
 
   -- Unmapped (outdated) inline comments — body preview only.
-  for _, d in ipairs(cur.unmapped) do
+  for _, d in ipairs(vim.tbl_filter(state.visible, cur.unmapped)) do
     local n = d.notes[1]
     local author = n.author and n.author.username or "?"
     local p = n.position or {}
@@ -126,7 +126,12 @@ function M.pick_comment()
   end
 
   if #entries == 0 then
-    util.notify("no comments on this MR")
+    local hidden = state.hidden_count()
+    if hidden > 0 then
+      util.notify(("no open comments (%d resolved thread(s) hidden)"):format(hidden))
+    else
+      util.notify("no comments on this MR")
+    end
     return
   end
 

@@ -83,18 +83,25 @@ end
 --- single `delete` marker anchored at the new-side line that now sits where the
 --- removed content was (the following line, or the last line at EOF).
 ---
+--- Signs also carry the *text* of the old-side lines they stand in for, so the
+--- content the MR removed can be shown in the buffer (it exists nowhere in the
+--- working tree). Removed lines are paired 1:1 with the additions of a change
+--- group; whatever is left over hangs off the trailing `delete` marker.
+---
 --- @param diff_text string  a unified diff body (as returned in `/diffs`)
---- @return table  list of { line = new_line (1-based), kind = "add"|"change"|"delete" }
+--- @return table  list of { line = new_line (1-based),
+---                          kind = "add"|"change"|"delete",
+---                          removed = string[]|nil }
 function M.changed_lines(diff_text)
   local signs = {}
   local new_ln
-  local pending_del = 0 -- deleted lines not yet "consumed" by an addition
+  local pending = {} -- text of deleted lines not yet "consumed" by an addition
 
   local function flush_delete()
-    if pending_del > 0 and new_ln then
-      signs[#signs + 1] = { line = new_ln, kind = "delete" }
+    if #pending > 0 and new_ln then
+      signs[#signs + 1] = { line = new_ln, kind = "delete", removed = pending }
     end
-    pending_del = 0
+    pending = {}
   end
 
   for line in (diff_text .. "\n"):gmatch("(.-)\n") do
@@ -108,20 +115,68 @@ function M.changed_lines(diff_text)
         flush_delete()
         new_ln = new_ln + 1
       elseif tag == "+" then
-        local kind = pending_del > 0 and "change" or "add"
-        if pending_del > 0 then
-          pending_del = pending_del - 1
+        local sign = { line = new_ln, kind = #pending > 0 and "change" or "add" }
+        if #pending > 0 then
+          sign.removed = { table.remove(pending, 1) }
         end
-        signs[#signs + 1] = { line = new_ln, kind = kind }
+        signs[#signs + 1] = sign
         new_ln = new_ln + 1
       elseif tag == "-" then
-        pending_del = pending_del + 1
+        pending[#pending + 1] = line:sub(2)
       end
       -- "\ No newline at end of file" and anything else is ignored
     end
   end
   flush_delete()
   return signs
+end
+
+--- Split a unified diff into hunks, keeping each hunk's raw body.
+---
+--- Used for the on-demand hunk preview: the working tree only holds the new
+--- side, so the removed lines are shown from here instead of from the buffer.
+--- `new_last` is the last new-side line the hunk covers, so a cursor line can
+--- be matched to its hunk; for a hunk that only deletes, the range collapses to
+--- the line the deletion sits in front of.
+---
+--- @param diff_text string  a unified diff body (as returned in `/diffs`)
+--- @return table  list of { header, new_start, new_last, lines = string[] }
+function M.hunks(diff_text)
+  local hunks = {}
+  local cur
+  for line in (diff_text .. "\n"):gmatch("(.-)\n") do
+    local c = line:match("^@@ %-%d+,?%d* %+(%d+),?%d* @@")
+    if c then
+      local start = tonumber(c)
+      cur = { header = line, new_start = start, new_last = start, lines = {} }
+      hunks[#hunks + 1] = cur
+    elseif cur then
+      local tag = line:sub(1, 1)
+      if tag == " " or tag == "+" or tag == "-" then
+        cur.lines[#cur.lines + 1] = line
+        if tag ~= "-" then
+          cur.new_last = cur.new_last + 1
+        end
+      end
+    end
+  end
+  for _, h in ipairs(hunks) do
+    -- new_last counted one past the hunk's last new-side line.
+    h.new_last = math.max(h.new_start, h.new_last - 1)
+  end
+  return hunks
+end
+
+--- The hunk covering new-side line `line`, or nil.
+--- @param hunks table  as returned by |M.hunks|
+--- @param line integer 1-based new-side line number
+function M.hunk_at(hunks, line)
+  for _, h in ipairs(hunks or {}) do
+    if line >= h.new_start and line <= h.new_last then
+      return h
+    end
+  end
+  return nil
 end
 
 return M
