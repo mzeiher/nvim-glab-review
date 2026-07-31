@@ -163,6 +163,15 @@ loaded state.
                         move. Nothing is written into the buffer. See
                         |glab-review-changes|.
 
+                                                            *:GlabReviewNextHunk*
+                                                            *:GlabReviewPrevHunk*
+:[count]GlabReviewNextHunk
+:[count]GlabReviewPrevHunk
+                        Jump to the next / previous block of lines the MR
+                        changed, wrapping at the end of the buffer. [count]
+                        skips that many blocks (`3]h`). Mapped to `]h` and `[h`
+                        by default. See |glab-review-motions|.
+
                                                             *:GlabReviewComments*
 :GlabReviewComments     fzf-lua picker over every comment of the loaded MR.
                         Selecting an inline comment opens the file and jumps to
@@ -214,6 +223,8 @@ normal-mode mappings are defined:
     <leader>gmd     |:GlabReviewToggleChanges|
     <leader>gmD     |:GlabReviewToggleRemoved|
     <leader>gmh     |:GlabReviewHunk|
+    ]h              |:GlabReviewNextHunk|
+    [h              |:GlabReviewPrevHunk|
     <leader>gmc     |:GlabReviewComments|
     <leader>gmf     |:GlabReviewChanged|
     <leader>gmr     |:GlabReviewReact|
@@ -390,6 +401,26 @@ extra request:
 Layers 1 and 3 toggle independently, so |:GlabReviewToggleChanges| can be off
 while removed lines are shown, giving a plain before/after read of the file.
 
+HUNK MOTIONS                                               *glab-review-motions*
+
+`]h` (|:GlabReviewNextHunk|) and `[h` (|:GlabReviewPrevHunk|) move between the
+blocks of lines the MR changed in the current buffer.
+
+A block is a run of *changed* lines that touch each other, not a diff hunk: a
+hunk begins three lines of context before anything changed, so jumping to one
+would leave the cursor on unchanged code. Consecutive changed lines — including
+a delete marker that lands right after an addition — count as one block, so you
+stop once per change rather than once per line.
+
+  - Both wrap at the end of the buffer, so repeating `]h` cycles the file.
+  - A [count] skips that many blocks: `3]h`.
+  - `[h` from inside a block goes to that block's first line; from below the last
+    block it goes to that block, matching how |[c| behaves.
+  - Each jump sets the |'| mark, so |CTRL-O| returns to where you started.
+  - The command line echoes "MR change 2/7" (not added to |:messages|).
+  - They read the change data, not the signs, so they work with the hints
+    hidden. In a file the MR does not touch, they report and stay put.
+
 ==============================================================================
 11. REACTIONS                                            *glab-review-reactions*
 
@@ -480,6 +511,10 @@ Defaults: >lua
         toggle_changes  = "<leader>gmd",
         toggle_removed  = "<leader>gmD",
         hunk            = "<leader>gmh",
+        -- Motions (|glab-review-motions|); count-aware, so they get bracket
+        -- keys rather than a leader chord.
+        next_hunk       = "]h",
+        prev_hunk       = "[h",
         comments       = "<leader>gmc",
         changed       = "<leader>gmf",
         react         = "<leader>gmr",
@@ -522,6 +557,12 @@ glab-review.toggle_removed()                        *glab-review.toggle_removed(
 
 glab-review.hunk()                                           *glab-review.hunk()*
         Preview the MR diff hunk at the cursor. Same as |:GlabReviewHunk|.
+
+glab-review.next_hunk([count])                          *glab-review.next_hunk()*
+glab-review.prev_hunk([count])                          *glab-review.prev_hunk()*
+        Jump to the next / previous changed block; {count} defaults to |v:count1|
+        so they can be mapped directly. Same as |:GlabReviewNextHunk| and
+        |:GlabReviewPrevHunk|.
 
 glab-review.comments()                                   *glab-review.comments()*
         Open the comment-navigation picker. Same as |:GlabReviewComments|.
@@ -575,12 +616,12 @@ Module layout (under `lua/glab-review/`):
     gitlab.lua      high-level MR operations
     state.lua       in-memory MR model, indexes and the resolved-view filter
     diff.lua        unified-diff parsing (line map, changed-line classifier,
-                    hunk splitter)
+                    change blocks, hunk splitter)
     util.lua        coroutine async/await, git helpers, SHA1, notify
     picker.lua      fzf-lua pickers (MR / comments / emoji)
     overview.lua    overview buffer render + save protocol parser
     inline.lua      extmark signs + virtual text + inline creation
-    changes.lua     change-hint signs, inline removed lines, hunk preview
+    changes.lua     change-hint signs, inline removed lines, preview, motions
     reactions.lua   award emoji + meta-command dispatch
 
 ==============================================================================

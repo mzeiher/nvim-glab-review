@@ -23,6 +23,16 @@ cmd("GlabReviewToggleResolved", "toggle_resolved", "Show/hide resolved threads e
 cmd("GlabReviewToggleChanges", "toggle_changes", "Toggle change-hint gutter signs")
 cmd("GlabReviewToggleRemoved", "toggle_removed", "Toggle the MR's removed lines shown inline")
 cmd("GlabReviewHunk", "hunk", "Preview the MR diff hunk at the cursor (incl. removed lines)")
+
+-- Count-aware motions: `:3GlabReviewNextHunk` skips ahead three changes.
+local function motion(name, fn, desc)
+  vim.api.nvim_create_user_command(name, function(o)
+    require("glab-review")[fn](o.count > 0 and o.count or 1)
+  end, { count = true, desc = desc })
+end
+
+motion("GlabReviewNextHunk", "next_hunk", "Jump to the next block of lines changed by the MR")
+motion("GlabReviewPrevHunk", "prev_hunk", "Jump to the previous block of lines changed by the MR")
 cmd("GlabReviewComments", "comments", "Pick and jump to any MR comment")
 cmd("GlabReviewChanged", "changed", "Pick changed files (open or send to quickfix)")
 cmd("GlabReviewReact", "react", "React to the comment under the cursor")

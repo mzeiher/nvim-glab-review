@@ -15,6 +15,13 @@ function M.err(msg)
   M.notify(msg, vim.log.levels.ERROR)
 end
 
+--- Transient one-line message on the command line, kept out of |:messages|.
+--- For feedback that repeats often (hunk navigation), where a notification
+--- would be noise.
+function M.echo(msg)
+  vim.api.nvim_echo({ { PREFIX .. msg, "Comment" } }, false, {})
+end
+
 --- Run `fn` as a coroutine so that `M.await(...)` can be used inside it to
 --- linearise callback-based async APIs. Any error raised inside the coroutine
 --- is surfaced as a notification instead of being silently swallowed.

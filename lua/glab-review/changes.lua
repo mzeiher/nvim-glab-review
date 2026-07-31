@@ -151,6 +151,73 @@ function M.toggle_removed()
   util.notify("removed lines " .. (show_removed and "shown inline" or "hidden"))
 end
 
+-- The current buffer's changed-line blocks, clamped to the buffer (a delete at
+-- EOF is anchored past the last line). Returns the blocks and the repo path, or
+-- nil plus a reason to report.
+local function blocks_here()
+  if not state.is_loaded() then
+    return nil, "no MR loaded — run sync first"
+  end
+  local path = util.repo_relative(vim.api.nvim_buf_get_name(0))
+  if not path then
+    return nil, "current buffer is not inside the repo"
+  end
+  local signs = state.changes_for_path(path)
+  if #signs == 0 then
+    return nil, ("%s is not changed by this MR"):format(path)
+  end
+  local n_lines = vim.api.nvim_buf_line_count(0)
+  local out = {}
+  for _, b in ipairs(require("glab-review.diff").blocks(signs)) do
+    local first = math.min(b.first, n_lines)
+    -- Clamping can collapse a trailing block onto the previous one.
+    if out[#out] ~= first then
+      out[#out + 1] = first
+    end
+  end
+  return out, path
+end
+
+--- Jump to the `count`-th next (`dir` 1) or previous (`dir` -1) block of lines
+--- the MR changed, wrapping at the end of the buffer. Navigation works off the
+--- change data, so it is independent of whether the signs are currently shown.
+--- @param dir integer   1 or -1
+--- @param count integer|nil  how many blocks to move (default 1)
+function M.goto_hunk(dir, count)
+  local blocks, why = blocks_here()
+  if not blocks then
+    util.notify(why)
+    return
+  end
+  count = math.max(count or 1, 1)
+
+  local cur = vim.api.nvim_win_get_cursor(0)[1]
+  -- Index of the block the cursor is at or before, so both directions can step
+  -- from the same reference point.
+  local idx = 0
+  for i, line in ipairs(blocks) do
+    if line <= cur then
+      idx = i
+    end
+  end
+  -- Sitting *inside* a block counts as being on it; sitting after it means the
+  -- next jump forward should reach the block that follows.
+  local target
+  if dir > 0 then
+    target = idx + count
+  else
+    target = (blocks[idx] == cur and idx or idx + 1) - count
+  end
+  -- Wrap: Lua is 1-based, so shift into 0-based for the modulo and back.
+  local n = #blocks
+  target = (target - 1) % n + 1
+
+  vim.cmd("normal! m'") -- leave a jumplist entry so <C-o> comes back
+  vim.api.nvim_win_set_cursor(0, { blocks[target], 0 })
+  vim.cmd("normal! ^")
+  util.echo(("MR change %d/%d"):format(target, n))
+end
+
 --- Show the MR diff hunk around the cursor in a float: the added lines as they
 --- are in the buffer plus the removed lines, which the working tree does not
 --- have. Nothing is written into the buffer, so the code stays where it is.

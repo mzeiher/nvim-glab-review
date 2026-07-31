@@ -86,6 +86,10 @@ local defaults = {
     toggle_changes = "<leader>gmd",
     toggle_removed = "<leader>gmD",
     hunk = "<leader>gmh",
+    -- Hunk motions: repeated often, so they get bracket keys rather than a
+    -- leader chord. Accept a count (`3]h`).
+    next_hunk = "]h",
+    prev_hunk = "[h",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",

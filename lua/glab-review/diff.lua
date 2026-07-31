@@ -131,6 +131,30 @@ function M.changed_lines(diff_text)
   return signs
 end
 
+--- Group change signs into the contiguous runs a reader thinks of as "one
+--- change", for jumping between them.
+---
+--- Signs arrive in ascending line order; lines that touch (or repeat, as when a
+--- delete marker lands on the line right after an addition) belong to the same
+--- block. Diff hunks are deliberately not used here: a hunk starts three lines
+--- of context before anything changed, so jumping to it would land the cursor on
+--- unchanged code.
+---
+--- @param signs table  as returned by |M.changed_lines|
+--- @return table  list of { first = line, last = line } in ascending order
+function M.blocks(signs)
+  local out = {}
+  for _, s in ipairs(signs) do
+    local last = out[#out]
+    if last and s.line <= last.last + 1 then
+      last.last = math.max(last.last, s.line)
+    else
+      out[#out + 1] = { first = s.line, last = s.line }
+    end
+  end
+  return out
+end
+
 --- Split a unified diff into hunks, keeping each hunk's raw body.
 ---
 --- Used for the on-demand hunk preview: the working tree only holds the new

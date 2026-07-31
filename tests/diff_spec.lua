@@ -114,6 +114,29 @@ check(
     and find_sign(ccd, 2).removed[1] == "b"
 )
 
+-- blocks(): contiguous runs of changed lines, one navigation target each.
+local function spans(bs)
+  local out = {}
+  for _, b in ipairs(bs) do
+    out[#out + 1] = ("%d-%d"):format(b.first, b.last)
+  end
+  return table.concat(out, " ")
+end
+check("blocks: adjacent change+add merge", spans(diff.blocks(cl)) == "2-3")
+check("blocks: lone delete marker", spans(diff.blocks(cdel)) == "2-2")
+check("blocks: change and its leftover delete merge", spans(diff.blocks(ccd)) == "1-2")
+check("blocks: none for an empty sign list", #diff.blocks({}) == 0)
+check("blocks: a one-line gap splits, touching lines do not", spans(diff.blocks({
+  { line = 3, kind = "add" },
+  { line = 4, kind = "add" },
+  { line = 6, kind = "add" },
+  { line = 20, kind = "delete" },
+})) == "3-4 6-6 20-20")
+check(
+  "blocks: repeated line (delete on an added line) stays one block",
+  spans(diff.blocks({ { line = 8, kind = "change" }, { line = 9, kind = "delete" } })) == "8-9"
+)
+
 -- hunks(): each hunk keeps its raw body and its new-side span, so a cursor line
 -- can be matched to the hunk it belongs to.
 local hs = diff.hunks(d)

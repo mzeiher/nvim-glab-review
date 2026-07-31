@@ -130,6 +130,16 @@ function M.hunk()
   require("glab-review.changes").preview_hunk()
 end
 
+--- Jump to the next block of lines changed by the MR (wraps).
+function M.next_hunk(count)
+  require("glab-review.changes").goto_hunk(1, count or vim.v.count1)
+end
+
+--- Jump to the previous block of lines changed by the MR (wraps).
+function M.prev_hunk(count)
+  require("glab-review.changes").goto_hunk(-1, count or vim.v.count1)
+end
+
 --- fzf-lua picker over every comment; jump to its location on select.
 function M.comments()
   if not state.is_loaded() then
@@ -201,6 +211,8 @@ local function apply_keymaps()
   map(km.toggle_changes, M.toggle_changes, "glab-review: toggle change hints")
   map(km.toggle_removed, M.toggle_removed, "glab-review: toggle removed lines inline")
   map(km.hunk, M.hunk, "glab-review: preview MR diff hunk at cursor")
+  map(km.next_hunk, M.next_hunk, "glab-review: next MR change")
+  map(km.prev_hunk, M.prev_hunk, "glab-review: previous MR change")
   map(km.comments, M.comments, "glab-review: comment picker")
   map(km.changed, M.changed, "glab-review: changed files picker")
   map(km.react, M.react, "glab-review: react at cursor")

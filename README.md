@@ -38,6 +38,8 @@ text with a gutter sign, just like diagnostics.
   working tree: as a float for the hunk under the cursor (`:GlabReviewHunk`), or
   inlined as virtual text above where it was (`:GlabReviewToggleRemoved`, off by
   default since it pushes the code down).
+- **Hunk motions** — jump between the blocks the MR changed with `]h` / `[h`
+  (counts work: `3]h`), wrapping at the end of the file.
 - **Create inline comments** — always start a new thread on the line under the
   cursor (`:GlabReviewComment`). Select lines in Visual mode to post a single
   **multi-line** comment spanning the selection.
@@ -84,6 +86,8 @@ commands and keys:
     "GlabReviewToggleChanges",
     "GlabReviewToggleRemoved",
     "GlabReviewHunk",
+    "GlabReviewNextHunk",
+    "GlabReviewPrevHunk",
     "GlabReviewComments",
     "GlabReviewChanged",
     "GlabReviewReact",
@@ -101,6 +105,8 @@ commands and keys:
     { "<leader>gmd", "<cmd>GlabReviewToggleChanges<cr>",desc = "glab: toggle change hints" },
     { "<leader>gmD", "<cmd>GlabReviewToggleRemoved<cr>",desc = "glab: toggle removed lines" },
     { "<leader>gmh", "<cmd>GlabReviewHunk<cr>",         desc = "glab: preview hunk at cursor" },
+    { "]h",          "<cmd>GlabReviewNextHunk<cr>",     desc = "glab: next MR change" },
+    { "[h",          "<cmd>GlabReviewPrevHunk<cr>",     desc = "glab: previous MR change" },
     { "<leader>gmc", "<cmd>GlabReviewComments<cr>",     desc = "glab: comments" },
     { "<leader>gmf", "<cmd>GlabReviewChanged<cr>",      desc = "glab: changed files" },
     { "<leader>gmr", "<cmd>GlabReviewReact<cr>",        desc = "glab: react" },
@@ -146,6 +152,8 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewToggleChanges` | `<leader>gmd` | Toggle change-hint gutter signs |
 | `:GlabReviewToggleRemoved` | `<leader>gmD` | Toggle the MR's removed lines shown inline |
 | `:GlabReviewHunk` | `<leader>gmh` | Preview the MR diff hunk at the cursor (incl. removed lines) |
+| `:GlabReviewNextHunk` | `]h` | Jump to the next block of changed lines (wraps, takes a count) |
+| `:GlabReviewPrevHunk` | `[h` | Jump to the previous block of changed lines |
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
@@ -250,6 +258,8 @@ require("glab-review").setup({
     toggle_changes = "<leader>gmd",
     toggle_removed = "<leader>gmD",
     hunk = "<leader>gmh",
+    next_hunk = "]h",            -- bracket keys: repeated often, count-aware
+    prev_hunk = "[h",
     comments = "<leader>gmc",
     changed = "<leader>gmf",
     react = "<leader>gmr",
@@ -311,6 +321,12 @@ it on with `changes.show_removed = true`, and restyle with
 
 The gutter signs and the inline removed lines toggle independently — you can run
 removed lines with `:GlabReviewToggleChanges` off for a bare before/after read.
+
+To move between them, `]h` / `[h` jump to the next / previous block of changed
+lines — consecutive changed lines count as one block, so you land once per change
+rather than once per line. They wrap at the end of the file, take a count (`3]h`),
+leave a jumplist entry (`<C-o>` comes back), echo `MR change 2/7` so you know
+where you are, and work whether or not the signs are currently shown.
 
 ## Documentation
 
