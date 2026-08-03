@@ -354,7 +354,7 @@ outside the diff is rejected with a message.
 
 CHANGE HINTS                                               *glab-review-changes*
 
-Separately from comments, glab-review marks the lines the MR *changed* with
+Separately from comments, glab-review marks the lines the MR itself changed with
 gitsigns-style gutter signs when you open a changed file. Only the affected
 lines are marked — there is no full-diff view.
 
@@ -406,7 +406,7 @@ HUNK MOTIONS                                               *glab-review-motions*
 `]h` (|:GlabReviewNextHunk|) and `[h` (|:GlabReviewPrevHunk|) move between the
 blocks of lines the MR changed in the current buffer.
 
-A block is a run of *changed* lines that touch each other, not a diff hunk: a
+A block is a run of changed lines that touch each other, not a diff hunk: a
 hunk begins three lines of context before anything changed, so jumping to one
 would leave the cursor on unchanged code. Consecutive changed lines — including
 a delete marker that lands right after an addition — count as one block, so you
