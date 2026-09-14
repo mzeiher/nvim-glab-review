@@ -28,6 +28,34 @@ function M.extract_metas(body)
   return vim.trim(table.concat(kept, "\n")), metas
 end
 
+--- Decide how a body and its meta-commands should be sent. `mode` is the draft
+--- mode in force, which a `/draft` or `/post` overrides. Returns:
+---   draft       queue it rather than post it
+---   resolve     the resolved state a `/resolve` asks for, or nil
+---   staged      the resolve rides along on the draft — only possible with a
+---               body to carry it, otherwise it has to be applied directly
+---   actionable  anything at all would reach the API
+function M.plan(body, metas, mode)
+  local draft, resolve, acts = mode and true or false, nil, false
+  for _, m in ipairs(metas or {}) do
+    if m.draft ~= nil then
+      draft = m.draft
+    end
+    if m.resolve ~= nil then
+      resolve = m.resolve
+    end
+    if m.award ~= nil or m.resolve ~= nil then
+      acts = true
+    end
+  end
+  return {
+    draft = draft,
+    resolve = resolve,
+    staged = draft and resolve == true and body ~= "",
+    actionable = body ~= "" or acts,
+  }
+end
+
 --- Apply a single meta action against a target. Runs inside async; returns err.
 --- `target` = { iid, discussion_id, note_id }
 function M.apply_meta(meta, target)

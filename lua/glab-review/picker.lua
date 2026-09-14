@@ -114,6 +114,21 @@ function M.pick_comment()
     )
   end
 
+  -- Pending drafts, which exist nowhere on the MR yet.
+  for _, d in ipairs(state.drafts()) do
+    local line, _, path = state.locate(d.position)
+    if path and line then
+      local where = ("%s:%d"):format(path, line)
+      add(("  ✎ pending %s  %s"):format(where, util.snippet(d.note)), {
+        kind = "inline",
+        path = path,
+        line = line,
+      })
+    else
+      add(("  ✎ pending general  %s"):format(util.snippet(d.note)), { kind = "draft" })
+    end
+  end
+
   -- Unmapped (outdated) inline comments — body preview only.
   for _, d in ipairs(vim.tbl_filter(state.visible, cur.unmapped)) do
     local n = d.notes[1]
@@ -144,6 +159,8 @@ function M.pick_comment()
       M.jump_to_inline(t.path, t.line)
     elseif t.kind == "general" then
       require("glab-review.overview").jump_to_discussion(t.discussion_id)
+    elseif t.kind == "draft" then
+      require("glab-review.overview").open()
     else
       util.notify(t.body)
     end

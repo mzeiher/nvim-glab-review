@@ -6,6 +6,11 @@ local gitlab = require("glab-review.gitlab")
 
 local M = {}
 
+-- Set once the instance has been shown not to have the drafts endpoint, so the
+-- warning does not repeat on every reload. A request that merely failed does
+-- not set it: the next load tries again and the configured mode stands.
+local drafts_unavailable = false
+
 --- Fetch an MR + its discussions, rebuild state, and (re)render the UI.
 --- Runs inside an async coroutine.
 local function load_mr(iid, opts)
@@ -28,7 +33,27 @@ local function load_mr(iid, opts)
     changes = nil
   end
 
-  state.load(mr, discussions or {}, changes)
+  -- Pending drafts are the review you have not published yet. An instance
+  -- without the endpoint loads everything else, but queueing comments there
+  -- would fail on every send and lose the typed body, so drafting goes off.
+  local drafts
+  if not drafts_unavailable then
+    local perr
+    perr, drafts = gitlab.get_drafts(iid)
+    if perr then
+      drafts = nil
+      if gitlab.endpoint_missing(perr) then
+        drafts_unavailable = true
+        state.set_draft_mode(false)
+        local msg = "this instance has no draft notes — comments will post immediately"
+        util.notify(msg, vim.log.levels.WARN)
+      else
+        util.notify("could not load pending drafts: " .. perr, vim.log.levels.WARN)
+      end
+    end
+  end
+
+  state.load(mr, discussions or {}, changes, drafts)
 
   local overview = require("glab-review.overview")
   local inline = require("glab-review.inline")
@@ -47,12 +72,16 @@ local function load_mr(iid, opts)
     n_inline = n_inline + #list
   end
   local hidden = state.hidden_count()
-  util.notify(("loaded !%d — %d threads, %d inline, %d unmapped%s"):format(
+  local pending = state.draft_count()
+  local hidden_note = hidden > 0 and (" (%d resolved hidden)"):format(hidden) or ""
+  local pending_note = pending > 0 and (", %d pending"):format(pending) or ""
+  util.notify(("loaded !%d — %d threads, %d inline, %d unmapped%s%s"):format(
     iid,
     #state.get().general,
     n_inline,
     #state.get().unmapped,
-    hidden > 0 and (" (%d resolved hidden)"):format(hidden) or ""))
+    hidden_note,
+    pending_note))
 end
 
 --- Reload the currently loaded MR from the server (after a mutation).
@@ -169,14 +198,15 @@ function M.react()
   require("glab-review.reactions").react_at_cursor()
 end
 
---- Always create a new comment on the current line or selected range.
-function M.comment(line1, line2)
-  require("glab-review.inline").create_at_cursor(line1, line2)
+--- Always create a new comment on the current line or selected range. `bang`
+--- inverts the draft mode for this one comment.
+function M.comment(line1, line2, bang)
+  require("glab-review.inline").create_at_cursor(line1, line2, state.drafting(bang))
 end
 
 --- Reply to the thread under the cursor (overview thread or commented line).
-function M.reply()
-  require("glab-review.inline").reply_at_cursor()
+function M.reply(bang)
+  require("glab-review.inline").reply_at_cursor(state.drafting(bang))
 end
 
 --- Toggle the resolved state of the discussion under the cursor.
@@ -185,9 +215,101 @@ function M.resolve()
 end
 
 --- Suggest a code change for the current line or selected range.
-function M.suggest(line1, line2)
-  require("glab-review.suggest").suggest_at(line1, line2)
+function M.suggest(line1, line2, bang)
+  require("glab-review.suggest").suggest_at(line1, line2, state.drafting(bang))
 end
+
+--- Toggle whether new comments queue as drafts or post immediately.
+function M.toggle_draft()
+  state.set_draft_mode(not state.draft_mode())
+  if not state.draft_mode() then
+    util.notify("comments post immediately")
+    return
+  end
+  util.notify("comments queue as drafts — :GlabReviewSubmit publishes them")
+  -- Asking for drafting again is also asking to retry an endpoint that failed;
+  -- the reload reports what is actually pending.
+  local retry = drafts_unavailable
+  drafts_unavailable = false
+  if retry and state.is_loaded() then
+    M.reload()
+  end
+end
+
+-- The pending draft the cursor is on: a line in the overview's pending section,
+-- or a drafted line in a code buffer.
+local function draft_at_cursor()
+  local id = require("glab-review.overview").draft_at_cursor()
+  if id then
+    return id
+  end
+  local path = util.repo_relative(vim.api.nvim_buf_get_name(0))
+  if not path then
+    return nil
+  end
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  for _, item in ipairs(state.drafts_for_path(path)) do
+    if item.line == line then
+      return item.draft.id
+    end
+  end
+  return nil
+end
+
+--- Discard the pending draft under the cursor, or every one with `bang`.
+M.discard = util.async(function(bang)
+  local cur = state.get()
+  if not cur then
+    util.notify("no MR loaded — run sync first")
+    return
+  end
+  local ids = {}
+  if bang then
+    if state.draft_count() == 0 then
+      util.notify("no pending comments to discard")
+      return
+    end
+    local question = ("Discard all %d pending comment(s)?"):format(state.draft_count())
+    local choice = util.await(function(resume)
+      vim.schedule(function()
+        resume(vim.fn.confirm(question, "&Yes\n&No", 2))
+      end)
+    end)
+    if choice ~= 1 then
+      return
+    end
+    for _, d in ipairs(state.drafts()) do
+      ids[#ids + 1] = d.id
+    end
+  else
+    local id = draft_at_cursor()
+    if not id then
+      util.notify("no pending comment under the cursor")
+      return
+    end
+    ids[1] = id
+  end
+
+  -- Keep going after a failure and reload regardless: stopping early would
+  -- leave the drafts already deleted on the server showing in the UI.
+  local done, failed, gone = 0, nil, {}
+  for _, id in ipairs(ids) do
+    local err = gitlab.delete_draft(cur.mr.iid, id)
+    if err then
+      failed = failed or err
+    else
+      done = done + 1
+      gone[#gone + 1] = id
+    end
+  end
+  require("glab-review.overview").forget_drafts(gone)
+  if failed then
+    util.err(("discarded %d of %d — %s"):format(done, #ids, failed))
+  else
+    util.notify(("discarded %d pending comment(s)"):format(done))
+  end
+  M.reload()
+end)
 
 --- Submit a review verdict: approve, request changes, or comment.
 function M.submit()
@@ -221,6 +343,8 @@ local function apply_keymaps()
   map(km.resolve, M.resolve, "glab-review: resolve/unresolve thread under cursor")
   map(km.suggest, M.suggest, "glab-review: suggest change for current line")
   map(km.submit, M.submit, "glab-review: submit review verdict")
+  map(km.toggle_draft, M.toggle_draft, "glab-review: toggle drafting of new comments")
+  map(km.discard, M.discard, "glab-review: discard the pending comment at the cursor")
   -- Visual-mode: comment on / suggest a change for the selected range.
   if km.comment then
     vim.keymap.set("x", km.comment, ":GlabReviewComment<CR>", {
@@ -239,6 +363,7 @@ end
 function M.setup(opts)
   config.setup(opts)
   state.set_hide_resolved(config.get().hide_resolved)
+  state.set_draft_mode(config.get().draft)
   require("glab-review.inline").setup()
   require("glab-review.changes").setup()
   apply_keymaps()

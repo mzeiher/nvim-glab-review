@@ -42,9 +42,28 @@ local function virt_lines_for(item)
       end
     end
   end
+  for _, d in ipairs(state.draft_replies(item.discussion.id)) do
+    table.insert(lines, { { "   ↳ (pending): ", cfg.draft_hl } })
+    for _, bl in ipairs(vim.split(d.note or "", "\n", { plain = true })) do
+      table.insert(lines, { { "   " .. bl, cfg.virt_hl } })
+    end
+    if d.resolve_discussion then
+      table.insert(lines, { { "   ✎ resolves on publish", cfg.draft_hl } })
+    end
+  end
   if item.discussion.resolvable then
     local hint = item.discussion.resolved and "   ✓ resolved" or "   ○ open"
     table.insert(lines, { { hint, cfg.author_hl } })
+  end
+  return lines
+end
+
+-- The same block for a standalone pending draft (no thread behind it yet).
+local function draft_virt_lines(draft)
+  local cfg = config.get().inline
+  local lines = { { { cfg.draft_sign_text .. " (pending): ", cfg.draft_hl } } }
+  for _, bl in ipairs(vim.split(draft.note or "", "\n", { plain = true })) do
+    table.insert(lines, { { "   " .. bl, cfg.virt_hl } })
   end
   return lines
 end
@@ -67,28 +86,37 @@ function M.place(bufnr, root)
     return
   end
   local items = state.inline_for_path(path)
+  local drafts = state.drafts_for_path(path)
 
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  if #items == 0 then
+  if #items == 0 and #drafts == 0 then
     return
   end
 
   local cfg = config.get().inline
   local n_lines = vim.api.nvim_buf_line_count(bufnr)
-  for _, item in ipairs(items) do
-    local row = item.line - 1
-    if row >= 0 and row < n_lines then
-      local opts = {
-        sign_text = cfg.sign_text,
-        sign_hl_group = cfg.sign_hl,
-        priority = 200,
-      }
-      if show_bodies then
-        opts.virt_lines = virt_lines_for(item)
-        opts.virt_lines_above = false
-      end
-      pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, row, 0, opts)
+  local function mark(line, sign, hl, virt, priority)
+    local row = line - 1
+    if row < 0 or row >= n_lines then
+      return
     end
+    local opts = { sign_text = sign, sign_hl_group = hl, priority = priority or 200 }
+    if show_bodies then
+      opts.virt_lines = virt()
+      opts.virt_lines_above = false
+    end
+    pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, row, 0, opts)
+  end
+
+  for _, item in ipairs(items) do
+    mark(item.line, cfg.sign_text, cfg.sign_hl, function()
+      return virt_lines_for(item)
+    end)
+  end
+  for _, item in ipairs(drafts) do
+    mark(item.line, cfg.draft_sign_text, cfg.draft_sign_hl, function()
+      return draft_virt_lines(item.draft)
+    end, 201)
   end
 end
 
@@ -112,22 +140,68 @@ function M.toggle()
   util.notify("inline comment bodies " .. (show_bodies and "shown" or "hidden"))
 end
 
--- Post a reply to an existing thread. `label` is shown in the input prompt.
-local function reply_to(iid, discussion_id, label)
-  vim.ui.input({ prompt = ("Reply to %s > "):format(label) }, function(input)
+-- Reply to an existing thread, posting it or queueing it as a draft. `target`
+-- is { discussion_id, note_id }; `label` is shown in the input prompt.
+local function reply_to(iid, target, label, draft)
+  local reactions = require("glab-review.reactions")
+  local prompt = (draft and "Draft reply to %s > " or "Reply to %s > "):format(label)
+  vim.ui.input({ prompt = prompt }, function(input)
     if not input or vim.trim(input) == "" then
       return
     end
+    -- Every recognised meta leaves the body: GitLab would otherwise run some of
+    -- them as quick actions (`/draft` marks the MR itself a draft).
+    local body, metas = reactions.extract_metas(input)
+    local plan = reactions.plan(body, metas, draft)
+    if not plan.actionable then
+      util.notify("nothing to send")
+      return
+    end
+
     util.async(function()
-      local err = gitlab.reply(iid, discussion_id, input)
-      if err then
-        util.err("failed to reply: " .. err)
-        return
+      if body ~= "" then
+        local err = gitlab.reply(iid, target.discussion_id, body, plan.draft, plan.staged)
+        if err then
+          util.err("failed to reply: " .. err)
+          return
+        end
       end
-      util.notify("reply added")
+      for _, meta in ipairs(metas) do
+        if not (plan.staged and meta.resolve == true) then
+          local err = reactions.apply_meta(meta, {
+            iid = iid,
+            discussion_id = target.discussion_id,
+            note_id = target.note_id,
+          })
+          if err then
+            util.err(err)
+            return
+          end
+        end
+      end
+      if body ~= "" then
+        util.notify(plan.draft and "reply queued (pending)" or "reply added")
+      elseif plan.resolve ~= nil then
+        util.notify(plan.resolve and "discussion resolved" or "discussion unresolved")
+      else
+        util.notify("meta-command(s) applied")
+      end
       require("glab-review").reload()
     end)()
   end)
+end
+
+-- A brand-new thread has nothing to resolve or react to, so only `/draft` and
+-- `/post` mean anything here — but every meta still has to leave the body, or
+-- GitLab runs it as a quick action. Returns nil when nothing is left to send.
+local function new_body(input, draft)
+  local reactions = require("glab-review.reactions")
+  local body, metas = reactions.extract_metas(input)
+  if body == "" then
+    util.notify("nothing to send")
+    return nil
+  end
+  return body, reactions.plan(body, metas, draft).draft
 end
 
 -- Fetch the MR change entry for `path` (matching either side of a rename).
@@ -148,7 +222,7 @@ end
 --- Post `body` as a new inline discussion anchored at `path`:`line`,
 --- resolving the old-side position from the MR's diff. Must run inside
 --- `util.async`; returns err|nil.
-function M.post_inline(iid, path, line, body, diff_refs)
+function M.post_inline(iid, path, line, body, diff_refs, draft)
   if not diff_refs or not diff_refs.head_sha then
     return "MR has no diff refs; cannot anchor an inline comment"
   end
@@ -159,26 +233,31 @@ function M.post_inline(iid, path, line, body, diff_refs)
   -- Unchanged lines must be addressed on BOTH sides (old_line + new_line);
   -- only lines added by the MR go out with new_line alone.
   local old_line = require("glab-review.diff").old_line_of(change.diff or "", line)
-  return gitlab.create_inline(iid, body, path, line, diff_refs, old_line, change.old_path)
+  return gitlab.create_inline(iid, body, path, line, diff_refs, old_line, change.old_path, draft)
 end
 
 -- Create a brand-new inline thread anchored at path:line.
-local function create_new(iid, path, line, diff_refs)
+local function create_new(iid, path, line, diff_refs, draft)
   if not diff_refs or not diff_refs.head_sha then
     util.err("MR has no diff refs; cannot anchor an inline comment")
     return
   end
-  vim.ui.input({ prompt = ("Inline comment on %s:%d > "):format(path, line) }, function(input)
+  local prompt = (draft and "Draft inline comment on %s:%d > " or "Inline comment on %s:%d > ")
+  vim.ui.input({ prompt = prompt:format(path, line) }, function(input)
     if not input or vim.trim(input) == "" then
       return
     end
+    local body, draft_here = new_body(input, draft)
+    if not body then
+      return
+    end
     util.async(function()
-      local err = M.post_inline(iid, path, line, input, diff_refs)
+      local err = M.post_inline(iid, path, line, body, diff_refs, draft_here)
       if err then
         util.err("failed to create inline comment: " .. err)
         return
       end
-      util.notify("inline comment added")
+      util.notify(draft_here and "inline comment queued (pending)" or "inline comment added")
       require("glab-review").reload()
     end)()
   end)
@@ -186,7 +265,7 @@ end
 
 -- Create a multi-line inline thread spanning new-side lines [line1, line2].
 -- Needs the file's diff to compute GitLab line codes for the range endpoints.
-local function create_multiline(iid, path, line1, line2, diff_refs)
+local function create_multiline(iid, path, line1, line2, diff_refs, draft)
   if not diff_refs or not diff_refs.head_sha then
     util.err("MR has no diff refs; cannot anchor an inline comment")
     return
@@ -210,10 +289,15 @@ local function create_multiline(iid, path, line1, line2, diff_refs)
       return ("%s_%d_%d"):format(sha, old, new)
     end
 
+    local prompt = (draft and "Draft comment on %s:%d-%d > " or "Comment on %s:%d-%d > ")
     local input = util.await(function(resume)
-      vim.ui.input({ prompt = ("Comment on %s:%d-%d > "):format(path, line1, line2) }, resume)
+      vim.ui.input({ prompt = prompt:format(path, line1, line2) }, resume)
     end)
     if not input or vim.trim(input) == "" then
+      return
+    end
+    local body, draft_here = new_body(input, draft)
+    if not body then
       return
     end
 
@@ -230,12 +314,13 @@ local function create_multiline(iid, path, line1, line2, diff_refs)
         ["end"] = { line_code = code(old2, line2), type = "new" },
       },
     }
-    local e2 = require("glab-review.gitlab").create_positioned(iid, input, position)
+    local e2 = require("glab-review.gitlab").create_positioned(iid, body, position, draft_here)
     if e2 then
       util.err("failed to create inline comment: " .. e2)
       return
     end
-    util.notify(("inline comment added (%d-%d)"):format(line1, line2))
+    local what = draft_here and "queued (%d-%d, pending)" or "added (%d-%d)"
+    util.notify("inline comment " .. what:format(line1, line2))
     require("glab-review").reload()
   end)()
 end
@@ -243,8 +328,9 @@ end
 --- Always create a NEW inline thread on the line(s) under the cursor /
 --- selection. A single line creates a single-line thread; a multi-line range
 --- (`line1 ~= line2`) creates one comment spanning the range. To reply to an
---- existing thread, use `reply_at_cursor` instead.
-function M.create_at_cursor(line1, line2)
+--- existing thread, use `reply_at_cursor` instead. `draft` queues it as a
+--- pending draft rather than posting it.
+function M.create_at_cursor(line1, line2, draft)
   local cur = state.get()
   if not cur then
     util.notify("no MR loaded — run sync first")
@@ -258,17 +344,17 @@ function M.create_at_cursor(line1, line2)
   end
 
   if line1 and line2 and line2 > line1 then
-    create_multiline(cur.mr.iid, path, line1, line2, cur.diff_refs)
+    create_multiline(cur.mr.iid, path, line1, line2, cur.diff_refs, draft)
   else
     local line = line1 or vim.api.nvim_win_get_cursor(0)[1]
-    create_new(cur.mr.iid, path, line, cur.diff_refs)
+    create_new(cur.mr.iid, path, line, cur.diff_refs, draft)
   end
 end
 
 --- Reply to the thread under the cursor. Works on a thread in the overview
 --- buffer, or on a commented code line (picking one when several threads share
---- the line).
-function M.reply_at_cursor()
+--- the line). `draft` queues the reply instead of posting it.
+function M.reply_at_cursor(draft)
   local cur = state.get()
   if not cur then
     util.notify("no MR loaded — run sync first")
@@ -279,7 +365,7 @@ function M.reply_at_cursor()
   -- In the overview buffer, reply to the thread under the cursor.
   local ov = require("glab-review.overview").discussion_at_cursor()
   if ov then
-    reply_to(iid, ov.discussion_id, "this thread")
+    reply_to(iid, ov, "this thread", draft)
     return
   end
 
@@ -300,7 +386,8 @@ function M.reply_at_cursor()
   if #existing == 0 then
     util.notify("no comment on this line to reply to")
   elseif #existing == 1 then
-    reply_to(iid, existing[1].discussion.id, ("%s:%d"):format(path, line))
+    local t = { discussion_id = existing[1].discussion.id, note_id = existing[1].note.id }
+    reply_to(iid, t, ("%s:%d"):format(path, line), draft)
   else
     vim.ui.select(existing, {
       prompt = "Reply to which thread?",
@@ -310,7 +397,8 @@ function M.reply_at_cursor()
       end,
     }, function(choice)
       if choice then
-        reply_to(iid, choice.discussion.id, ("%s:%d"):format(path, line))
+        local t = { discussion_id = choice.discussion.id, note_id = choice.note.id }
+        reply_to(iid, t, ("%s:%d"):format(path, line), draft)
       end
     end)
   end

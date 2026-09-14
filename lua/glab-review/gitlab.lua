@@ -26,16 +26,27 @@ function M.get_discussions(iid)
   return glab.api_await(("%s/%d/discussions?per_page=100"):format(BASE, iid), { paginate = true })
 end
 
---- Create a new top-level discussion (general thread) on the MR.
-function M.create_discussion(iid, body)
+--- Create a new top-level discussion (general thread) on the MR. With `draft`,
+--- it is queued as a pending draft note instead of being posted.
+function M.create_discussion(iid, body, draft)
+  if draft then
+    return M.create_draft(iid, body)
+  end
   return glab.api_await(("%s/%d/discussions"):format(BASE, iid), {
     method = "POST",
     body = { body = body },
   })
 end
 
---- Reply to an existing discussion.
-function M.reply(iid, discussion_id, body)
+--- Reply to an existing discussion. A draft reply can also stage the thread's
+--- resolution, which then takes effect when the review is published.
+function M.reply(iid, discussion_id, body, draft, resolve)
+  if draft then
+    return M.create_draft(iid, body, {
+      in_reply_to_discussion_id = discussion_id,
+      resolve_discussion = resolve or nil,
+    })
+  end
   return glab.api_await(("%s/%d/discussions/%s/notes"):format(BASE, iid, discussion_id), {
     method = "POST",
     body = { body = body },
@@ -56,8 +67,11 @@ function M.award(iid, note_id, name)
   })
 end
 
---- Create a discussion with a prebuilt diff `position`.
-function M.create_positioned(iid, body, position)
+--- Create a discussion with a prebuilt diff `position`, or queue it as a draft.
+function M.create_positioned(iid, body, position, draft)
+  if draft then
+    return M.create_draft(iid, body, { position = position })
+  end
   return glab.api_await(("%s/%d/discussions"):format(BASE, iid), {
     method = "POST",
     body = { body = body, position = position },
@@ -68,7 +82,7 @@ end
 --- Lines the MR did not change must also carry their old-side position
 --- (GitLab requires both `old_line` and `new_line` there); pass `old_line`
 --- as nil only for lines added by the MR. `old_path` covers renames.
-function M.create_inline(iid, body, path, new_line, diff_refs, old_line, old_path)
+function M.create_inline(iid, body, path, new_line, diff_refs, old_line, old_path, draft)
   return M.create_positioned(iid, body, {
     position_type = "text",
     base_sha = diff_refs.base_sha,
@@ -78,6 +92,46 @@ function M.create_inline(iid, body, path, new_line, diff_refs, old_line, old_pat
     old_path = old_path or path,
     new_line = new_line,
     old_line = old_line,
+  }, draft)
+end
+
+--- Whether an error says the endpoint is not there at all, as opposed to a
+--- request that failed on the way. Only the former is a property of the
+--- instance, and only it is worth remembering.
+function M.endpoint_missing(err)
+  return err ~= nil and err:find("404", 1, true) ~= nil
+end
+
+--- Pending draft notes on the MR (the current user's unpublished review).
+function M.get_drafts(iid)
+  return glab.api_await(("%s/%d/draft_notes?per_page=100"):format(BASE, iid), { paginate = true })
+end
+
+--- Queue a draft note. `opts` may carry `position`,
+--- `in_reply_to_discussion_id` and `resolve_discussion`.
+function M.create_draft(iid, body, opts)
+  local payload = { note = body }
+  for k, v in pairs(opts or {}) do
+    payload[k] = v
+  end
+  return glab.api_await(("%s/%d/draft_notes"):format(BASE, iid), {
+    method = "POST",
+    body = payload,
+  })
+end
+
+--- Discard a pending draft note.
+function M.delete_draft(iid, draft_id)
+  return glab.api_await(("%s/%d/draft_notes/%d"):format(BASE, iid, draft_id), { method = "DELETE" })
+end
+
+--- Publish every pending draft at once. A non-empty `note` is posted alongside
+--- them as the review's summary comment.
+function M.publish_drafts(iid, note)
+  local body = (note and note ~= "") and { note = note } or nil
+  return glab.api_await(("%s/%d/draft_notes/bulk_publish"):format(BASE, iid), {
+    method = "POST",
+    body = body,
   })
 end
 

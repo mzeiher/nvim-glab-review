@@ -38,23 +38,32 @@ cmd("GlabReviewChanged", "changed", "Pick changed files (open or send to quickfi
 cmd("GlabReviewReact", "react", "React to the comment under the cursor")
 
 -- Range-aware: a visual selection comments on the whole range (multi-line).
+-- A bang inverts the draft mode for that one comment, which `:w` in the
+-- overview buffer expresses with a `/draft` or `/post` line instead.
 vim.api.nvim_create_user_command("GlabReviewComment", function(o)
   if o.range == 2 then
-    require("glab-review").comment(o.line1, o.line2)
+    require("glab-review").comment(o.line1, o.line2, o.bang)
   else
-    require("glab-review").comment()
+    require("glab-review").comment(nil, nil, o.bang)
   end
-end, { range = true, desc = "Create a new comment on the current line or selection" })
+end, { range = true, bang = true, desc = "Create a new comment on the current line or selection" })
 
-cmd("GlabReviewReply", "reply", "Reply to the thread under the cursor")
+vim.api.nvim_create_user_command("GlabReviewReply", function(o)
+  require("glab-review").reply(o.bang)
+end, { bang = true, desc = "Reply to the thread under the cursor" })
 cmd("GlabReviewResolve", "resolve", "Toggle resolved state of the discussion under the cursor")
 cmd("GlabReviewSubmit", "submit", "Submit a review verdict: approve, request changes, or comment")
+cmd("GlabReviewToggleDraft", "toggle_draft", "Toggle whether new comments queue as drafts")
+
+vim.api.nvim_create_user_command("GlabReviewDiscard", function(o)
+  require("glab-review").discard(o.bang)
+end, { bang = true, desc = "Discard the pending comment at the cursor (! for all)" })
 
 -- Range-aware: a visual selection suggests a replacement for the whole range.
 vim.api.nvim_create_user_command("GlabReviewSuggest", function(o)
   if o.range == 2 then
-    require("glab-review").suggest(o.line1, o.line2)
+    require("glab-review").suggest(o.line1, o.line2, o.bang)
   else
-    require("glab-review").suggest()
+    require("glab-review").suggest(nil, nil, o.bang)
   end
-end, { range = true, desc = "Suggest a code change for the current line or selection" })
+end, { range = true, bang = true, desc = "Suggest a code change for the line or selection" })

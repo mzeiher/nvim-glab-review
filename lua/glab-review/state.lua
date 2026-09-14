@@ -9,6 +9,9 @@
 --   * changes      : map repo-relative path -> changed-line signs (gutter hints)
 --   * hunks        : map repo-relative path -> parsed diff hunks (for previews)
 --
+-- Pending draft notes (the unpublished review) are indexed the same way, into
+-- `drafts_by_file` and `drafts_by_discussion` (replies staged onto a thread).
+--
 -- The lookup helpers honour one view filter, `hide_resolved`, so a reviewer can
 -- mute threads that are already settled without reloading.
 local M = {}
@@ -25,6 +28,9 @@ local diff = require("glab-review.diff")
 --- @field note_index table
 --- @field changes table
 --- @field hunks table
+--- @field drafts table
+--- @field drafts_by_file table
+--- @field drafts_by_discussion table
 
 --- @type GlabState|nil
 local current = nil
@@ -72,10 +78,18 @@ local function resolve_line(position)
   return nil
 end
 
+--- The buffer line, diff side and path a `position` points at, or nil. Both
+--- halves come from the same side of the diff, so callers never pair a new
+--- path with an old line.
+function M.locate(position)
+  return resolve_line(position)
+end
+
 --- Build the derived indexes from a raw MR object + discussions list. `changes`
 --- is the raw `/diffs` file list (optional); each file's unified diff is parsed
---- into changed-line gutter hints keyed by path.
-function M.load(mr, discussions, changes)
+--- into changed-line gutter hints keyed by path. `drafts` is the pending
+--- draft-note list (optional).
+function M.load(mr, discussions, changes, drafts)
   current = {
     mr = mr,
     diff_refs = mr.diff_refs,
@@ -86,6 +100,9 @@ function M.load(mr, discussions, changes)
     note_index = {},
     changes = {},
     hunks = {},
+    drafts = drafts or {},
+    drafts_by_file = {},
+    drafts_by_discussion = {},
   }
 
   for _, c in ipairs(changes or {}) do
@@ -124,6 +141,25 @@ function M.load(mr, discussions, changes)
       else
         table.insert(current.unmapped, discussion)
       end
+    end
+  end
+
+  for _, draft in ipairs(current.drafts) do
+    local line, side, path = resolve_line(draft.position)
+    -- A reply belongs under its thread even when it carries the thread's
+    -- position; only a standalone draft is anchored to a line of its own.
+    if draft.discussion_id then
+      local list = current.drafts_by_discussion[draft.discussion_id] or {}
+      table.insert(list, draft)
+      current.drafts_by_discussion[draft.discussion_id] = list
+    elseif line and path then
+      current.drafts_by_file[path] = current.drafts_by_file[path] or {}
+      table.insert(current.drafts_by_file[path], {
+        draft = draft,
+        line = line,
+        side = side,
+        path = path,
+      })
     end
   end
 
@@ -213,6 +249,51 @@ end
 
 function M.note(note_id)
   return current and current.note_index[note_id] or nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Pending drafts
+-- ---------------------------------------------------------------------------
+
+--- Standalone drafts ({draft, line, side, path}) anchored in a repo-relative path.
+function M.drafts_for_path(path)
+  if not current then
+    return {}
+  end
+  return current.drafts_by_file[path] or {}
+end
+
+--- Drafts staged as replies to `discussion_id`.
+function M.draft_replies(discussion_id)
+  if not current then
+    return {}
+  end
+  return current.drafts_by_discussion[discussion_id] or {}
+end
+
+--- Every pending draft, in the order the API returned them.
+function M.drafts()
+  return current and current.drafts or {}
+end
+
+function M.draft_count()
+  return current and #current.drafts or 0
+end
+
+-- Session mode: when on, new comments are queued as drafts instead of posted.
+local draft_mode = true
+
+function M.set_draft_mode(v)
+  draft_mode = v and true or false
+end
+
+function M.draft_mode()
+  return draft_mode
+end
+
+--- Whether a command should draft, given its bang. A bang inverts the mode.
+function M.drafting(bang)
+  return (bang == true) ~= draft_mode
 end
 
 return M

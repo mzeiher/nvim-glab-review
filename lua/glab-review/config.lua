@@ -9,6 +9,12 @@ local defaults = {
   -- Toggle at runtime with `:GlabReviewToggleResolved`.
   hide_resolved = false,
 
+  -- Queue new comments as pending drafts (GitLab's "start a review") instead of
+  -- posting them straight away; `:GlabReviewSubmit` publishes the batch. Toggle
+  -- at runtime with `:GlabReviewToggleDraft`; a command's bang inverts it once,
+  -- so `:GlabReviewComment!` posts immediately while this is on.
+  draft = true,
+
   -- Award emojis offered in the fzf-lua reaction picker.
   -- Each entry is "<display> <api_name>"; only the api_name is sent to GitLab.
   emojis = {
@@ -24,13 +30,16 @@ local defaults = {
 
   -- Text meta-commands usable in the reaction input and in overview reply
   -- blocks. `award` adds an emoji to the targeted note; `resolve` toggles the
-  -- thread's resolved state.
+  -- thread's resolved state; `draft` overrides the draft mode for that block,
+  -- which `:w` cannot express with a bang.
   meta_commands = {
     ["/react-check"] = { award = "white_check_mark" },
     ["/react-up"] = { award = "thumbsup" },
     ["/react-eyes"] = { award = "eyes" },
     ["/resolve"] = { resolve = true },
     ["/unresolve"] = { resolve = false },
+    ["/draft"] = { draft = true },
+    ["/post"] = { draft = false },
   },
 
   overview = {
@@ -50,6 +59,10 @@ local defaults = {
     sign_hl = "DiagnosticSignInfo",
     virt_hl = "Comment",
     author_hl = "DiagnosticInfo",
+    -- Pending (unpublished) drafts, marked apart from posted comments.
+    draft_sign_text = "▐",
+    draft_sign_hl = "DiagnosticSignWarn",
+    draft_hl = "DiagnosticWarn",
   },
 
   -- Gutter hints marking the lines changed by the MR (relative to its base),
@@ -98,6 +111,8 @@ local defaults = {
     resolve = "<leader>gmx",
     suggest = "<leader>gmS",
     submit = "<leader>gma",
+    toggle_draft = "<leader>gmP",
+    discard = "<leader>gmX",
   },
 }
 

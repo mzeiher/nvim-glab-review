@@ -21,7 +21,8 @@ local ACTIONS = {
   { label = "Unapprove", done = "approval revoked" },
 }
 
---- Pick a verdict, optionally attach a comment, and send both.
+--- Pick a verdict, optionally attach a comment, and send both. Any pending
+--- drafts are published first, with the comment as the review's summary note.
 function M.submit()
   local cur = state.get()
   local mr = cur and cur.mr
@@ -30,9 +31,19 @@ function M.submit()
     return
   end
   local head_sha = cur.diff_refs and cur.diff_refs.head_sha
+  local pending = state.draft_count()
 
-  vim.ui.select(ACTIONS, {
-    prompt = ("Review !%d: %s"):format(mr.iid, mr.title or ""),
+  local actions = vim.deepcopy(ACTIONS)
+  if pending > 0 then
+    table.insert(actions, { label = "Publish pending", done = "review published" })
+  end
+
+  vim.ui.select(actions, {
+    prompt = ("Review !%d: %s%s"):format(
+      mr.iid,
+      mr.title or "",
+      pending > 0 and (" — %d pending"):format(pending) or ""
+    ),
     format_item = function(a)
       return a.label
     end,
@@ -51,7 +62,35 @@ function M.submit()
         return
       end
       util.async(function()
-        if body ~= "" then
+        -- Ask the server what is pending rather than trusting the last sync:
+        -- drafts outlive a session, and a load that failed once leaves the
+        -- cached count at zero — approving on that would publish nothing.
+        local ferr, live = gitlab.get_drafts(mr.iid)
+        if ferr and not gitlab.endpoint_missing(ferr) then
+          -- Guessing either way is worse than stopping: a stale zero approves
+          -- over pending comments, a stale count blocks the verdict entirely.
+          util.err("could not check for pending comments, nothing sent: " .. ferr)
+          return
+        end
+        local n = live and #live or 0
+        -- Taking an approval back is not the end of a review, so it leaves the
+        -- pending comments pending; every other verdict releases them.
+        local publish = n > 0 and action.label ~= "Unapprove"
+        if action.label == "Publish pending" and n == 0 then
+          util.notify("nothing pending — the review was already published")
+          return
+        end
+
+        -- Publish before the verdict: an approval must never land while the
+        -- comments it was based on are still pending. With drafts waiting, the
+        -- comment rides along as the review's summary note.
+        if publish then
+          local perr = gitlab.publish_drafts(mr.iid, body)
+          if perr then
+            util.err("failed to publish pending comments: " .. perr)
+            return
+          end
+        elseif body ~= "" then
           local err = gitlab.create_discussion(mr.iid, body)
           if err then
             util.err(err)
@@ -77,7 +116,8 @@ function M.submit()
           util.err(err)
           return
         end
-        util.notify(("!%d: %s"):format(mr.iid, action.done))
+        local published = publish and (" (%d comment(s) published)"):format(n) or ""
+        util.notify(("!%d: %s%s"):format(mr.iid, action.done, published))
         require("glab-review").reload()
       end)()
     end)

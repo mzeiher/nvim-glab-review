@@ -18,11 +18,12 @@ CONTENTS                                                  *glab-review-contents*
   8. The overview buffer ...................... |glab-review-overview|
   9. Meta-commands ............................ |glab-review-meta-commands|
  10. Inline comments .......................... |glab-review-inline|
- 11. Reactions ................................ |glab-review-reactions|
- 12. Configuration ............................ |glab-review-configuration|
- 13. Lua API .................................. |glab-review-api|
- 14. How it works ............................. |glab-review-internals|
- 15. Troubleshooting .......................... |glab-review-troubleshooting|
+ 11. Pending reviews .......................... |glab-review-drafts|
+ 12. Reactions ................................ |glab-review-reactions|
+ 13. Configuration ............................ |glab-review-configuration|
+ 14. Lua API .................................. |glab-review-api|
+ 15. How it works ............................. |glab-review-internals|
+ 16. Troubleshooting .......................... |glab-review-troubleshooting|
 
 ==============================================================================
 1. INTRODUCTION                                       *glab-review-introduction*
@@ -192,10 +193,14 @@ loaded state.
                         overview buffer. Opens an fzf-lua emoji picker.
 
                                                              *:GlabReviewComment*
-:GlabReviewComment      Always create a NEW inline thread on the line under the
+:GlabReviewComment[!]   Always create a NEW inline thread on the line under the
                         cursor (even if the line already has comments). Prompts
                         for the body with |vim.ui.input()|. To reply to an
                         existing thread, use |:GlabReviewReply| instead.
+
+                        The comment is queued as a pending draft unless the
+                        bang inverts the current mode (see
+                        |glab-review-drafts|).
 
                         Accepts a range: select lines in Visual mode and run it
                         (or `:'<,'>GlabReviewComment`) to create a single
@@ -204,10 +209,29 @@ loaded state.
                         `comment` mapping is also bound in Visual mode.
 
                                                                *:GlabReviewReply*
-:GlabReviewReply        Reply to the thread under the cursor. Works on a thread
+:GlabReviewReply[!]     Reply to the thread under the cursor. Works on a thread
                         in the overview buffer, or on a commented code line
                         (you are prompted to choose when several threads share
                         the line). Prompts for the reply with |vim.ui.input()|.
+
+                        Queued as a draft unless the bang inverts the current
+                        mode. A lone `/resolve` at this prompt resolves the
+                        thread at once — the input is a single line, so there
+                        is no drafted reply for it to ride along on. Staging a
+                        resolve needs the overview buffer, whose reply block
+                        holds both (see |glab-review-drafts|).
+
+                                                         *:GlabReviewToggleDraft*
+:GlabReviewToggleDraft  Toggle whether new comments queue as pending drafts or
+                        post immediately. Starts from the `draft` option. See
+                        |glab-review-drafts|.
+
+                                                             *:GlabReviewDiscard*
+:GlabReviewDiscard[!]   Discard the pending draft under the cursor — a line in
+                        the overview's "Pending review" section, or a drafted
+                        line in a code buffer. With a bang, discard every
+                        pending comment of the MR after a confirmation. This
+                        cannot be undone; published comments are untouched.
 
 ==============================================================================
 7. MAPPINGS                                               *glab-review-mappings*
@@ -230,6 +254,8 @@ normal-mode mappings are defined:
     <leader>gmr     |:GlabReviewReact|
     <leader>gmR     |:GlabReviewReply|
     <leader>gmn     |:GlabReviewComment|
+    <leader>gmP     |:GlabReviewToggleDraft|
+    <leader>gmX     |:GlabReviewDiscard|
 
 Set `keymaps = false` to define your own. The public functions on the
 `require("glab-review")` module (see |glab-review-api|) can be mapped directly.
@@ -290,6 +316,8 @@ and dispatched as actions. The defaults are:
     /react-eyes         Award eyes
     /resolve            Resolve the thread
     /unresolve          Unresolve the thread
+    /draft              Queue this block as a pending draft
+    /post               Post this block now, even while drafting
 
 Example reply body: >
 
@@ -298,7 +326,16 @@ Example reply body: >
     /resolve
 <
 This posts "Looks good to me.", awards a checkmark, and resolves the thread in
-one save. Meta-commands are configurable via `meta_commands`
+one save. `/draft` and `/post` stand in for a command's bang, which `:w` cannot
+express; while drafting, a `/resolve` alongside reply text is staged with the
+draft rather than applied now (with no text to carry it, it applies at once —
+see |glab-review-drafts|).
+
+The |:GlabReviewReply| and |:GlabReviewComment| prompts take these commands
+too, and always strip them from the body: several are live GitLab quick
+actions, so a `/draft` reaching the note would mark the merge request itself a
+draft. A brand-new comment has no thread behind it, so only `/draft` and
+`/post` do anything there. Meta-commands are configurable via `meta_commands`
 (|glab-review-configuration|). They are also accepted by |:GlabReviewReact|'s
 input when typed.
 
@@ -422,7 +459,49 @@ stop once per change rather than once per line.
     hidden. In a file the MR does not touch, they report and stay put.
 
 ==============================================================================
-11. REACTIONS                                            *glab-review-reactions*
+11. PENDING REVIEWS                                         *glab-review-drafts*
+
+New comments are queued as GitLab draft notes rather than posted one at a time:
+you accumulate a review and release it with a single |:GlabReviewSubmit|, the
+way "Start a review" works in the GitLab web UI. Drafts are held server-side,
+so they survive a restart of Neovim and show up as the same pending review in
+the browser.
+
+This is the default (`draft = true`). A bang inverts it for one command, so
+`:GlabReviewComment!` posts straight through while drafting is on, and queues
+instead when it is off. |:GlabReviewToggleDraft| flips the mode for the
+session. In the overview buffer, where `:w` takes no bang, a `/draft` or
+`/post` line does the same for that block (see |glab-review-meta-commands|).
+
+Queued comments are marked apart from posted ones:
+  - a distinct gutter sign (`inline.draft_sign_text`) on the drafted line, with
+    the body shown below it as "(pending)"
+  - a "Pending review" section in the overview buffer, listing where each one
+    will land
+  - a "pending" entry in the |:GlabReviewComments| picker
+
+That section is informational: drafts cannot be edited in it and `:w` ignores
+it entirely. To reword one, discard it with |:GlabReviewDiscard| and write it
+again.
+
+A reply written in the overview buffer with `/resolve` under it stages the
+resolution as well, so the thread settles when the review is published rather
+than when you save. Unresolving, and award emojis, have no draft form and still
+take effect at once.
+
+|:GlabReviewSubmit| publishes everything pending in one request, with its
+comment attached as the review's summary note, and only then sends the verdict
+— an approval never lands while the comments behind it are still pending. The
+exception is "Unapprove", which is not the end of a review and leaves the
+pending comments pending. |:GlabReviewDiscard| with a bang throws the whole
+pending review away.
+
+An instance without the draft-notes endpoint warns once, turns drafting off for
+the session and loads everything else, so comments post the way they always
+did rather than failing on every send. |:GlabReviewToggleDraft| retries it.
+
+==============================================================================
+12. REACTIONS                                            *glab-review-reactions*
 
 |:GlabReviewReact| reacts to the comment under the cursor. The target is found
 either from a commented code line (matching the cursor's line) or from a thread
@@ -434,7 +513,7 @@ separated token (the GitLab award-emoji name) is sent to the API, so the
 leading glyph is purely cosmetic.
 
 ==============================================================================
-12. CONFIGURATION                                    *glab-review-configuration*
+13. CONFIGURATION                                    *glab-review-configuration*
 
                                                             *glab-review.setup()*
 require("glab-review").setup({opts})
@@ -452,6 +531,10 @@ Defaults: >lua
       -- picker). See |glab-review-resolved|.
       hide_resolved = false,
 
+      -- Queue new comments as pending drafts instead of posting them; a
+      -- command's bang inverts it once. See |glab-review-drafts|.
+      draft = true,
+
       -- How to open the overview window (see |glab-review-overview|):
       --   "vsplit" | "split" | "tab" | "current"
       overview = {
@@ -467,13 +550,16 @@ Defaults: >lua
 
       -- Text meta-commands usable in reply regions and the react input.
       -- `award` adds an emoji to the targeted note; `resolve` toggles the
-      -- thread's resolved state.
+      -- thread's resolved state; `draft` overrides the draft mode for that
+      -- block, which `:w` cannot express with a bang.
       meta_commands = {
         ["/react-check"] = { award = "white_check_mark" },
         ["/react-up"]    = { award = "thumbsup" },
         ["/react-eyes"]  = { award = "eyes" },
         ["/resolve"]     = { resolve = true },
         ["/unresolve"]   = { resolve = false },
+        ["/draft"]       = { draft = true },
+        ["/post"]        = { draft = false },
       },
 
       inline = {
@@ -482,6 +568,10 @@ Defaults: >lua
         sign_hl   = "DiagnosticSignInfo",
         virt_hl   = "Comment",      -- note body highlight
         author_hl = "DiagnosticInfo",
+        -- Pending drafts, marked apart from posted comments.
+        draft_sign_text = "▐",
+        draft_sign_hl   = "DiagnosticSignWarn",
+        draft_hl        = "DiagnosticWarn",
       },
 
       -- Gutter hints for the lines the MR changed (see |glab-review-changes|).
@@ -520,6 +610,8 @@ Defaults: >lua
         react         = "<leader>gmr",
         reply         = "<leader>gmR",
         comment       = "<leader>gmn",
+        toggle_draft  = "<leader>gmP",
+        discard       = "<leader>gmX",
       },
     })
 <
@@ -527,7 +619,7 @@ Set any individual `keymaps.<name>` to `nil` to skip just that mapping, or
 `keymaps = false` to skip them all.
 
 ==============================================================================
-13. LUA API                                                    *glab-review-api*
+14. LUA API                                                    *glab-review-api*
 
 All functions live on the `require("glab-review")` module:
 
@@ -573,12 +665,21 @@ glab-review.changed()                                     *glab-review.changed()
 glab-review.react()                                         *glab-review.react()*
         React to the comment under the cursor. Same as |:GlabReviewReact|.
 
-glab-review.reply()                                         *glab-review.reply()*
-        Reply to the thread under the cursor. Same as |:GlabReviewReply|.
+glab-review.reply([bang])                                   *glab-review.reply()*
+        Reply to the thread under the cursor. Same as |:GlabReviewReply|;
+        {bang} inverts the draft mode for this reply.
 
-glab-review.comment()                                     *glab-review.comment()*
-        Create an inline comment on the current line. Same as
-        |:GlabReviewComment|.
+glab-review.comment([line1], [line2], [bang])             *glab-review.comment()*
+        Create an inline comment on the current line or range. Same as
+        |:GlabReviewComment|; {bang} inverts the draft mode for it.
+
+glab-review.toggle_draft()                           *glab-review.toggle_draft()*
+        Toggle whether new comments queue as drafts. Same as
+        |:GlabReviewToggleDraft|. See |glab-review-drafts|.
+
+glab-review.discard([all])                                *glab-review.discard()*
+        Discard the pending draft under the cursor, or every one when {all} is
+        true. Same as |:GlabReviewDiscard|.
 
 glab-review.reload()                                       *glab-review.reload()*
         Re-fetch and re-render the currently loaded MR. Called automatically
@@ -589,7 +690,7 @@ These can be bound to keys when `keymaps = false`, e.g.: >lua
     vim.keymap.set("n", "<leader>gs", require("glab-review").sync)
 <
 ==============================================================================
-14. HOW IT WORKS                                         *glab-review-internals*
+15. HOW IT WORKS                                         *glab-review-internals*
 
 All API access goes through `glab api`, which targets the GitLab REST API for
 the current repository (the `:fullpath` placeholder is expanded by glab).
@@ -625,7 +726,7 @@ Module layout (under `lua/glab-review/`):
     reactions.lua   award emoji + meta-command dispatch
 
 ==============================================================================
-15. TROUBLESHOOTING                                *glab-review-troubleshooting*
+16. TROUBLESHOOTING                                *glab-review-troubleshooting*
 
 "glab api ... failed"
         Ensure `glab auth status` succeeds and you are inside a git repository

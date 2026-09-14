@@ -14,8 +14,9 @@ local M = {}
 local ns
 
 --- Open the suggestion editor for buffer lines [line1, line2] of the current
---- code buffer (both default to the cursor line).
-function M.suggest_at(line1, line2)
+--- code buffer (both default to the cursor line). `draft` queues the
+--- suggestion as a pending draft instead of posting it.
+function M.suggest_at(line1, line2, draft)
   local cur = state.get()
   if not cur then
     util.notify("no MR loaded — run sync first")
@@ -52,10 +53,11 @@ function M.suggest_at(line1, line2)
     virt_lines = {
       {
         {
-          ("Suggestion for %s:%d-%d — edit the replacement inside the fence, add comment text above it. :w posts, :q! aborts."):format(
+          ("Suggestion for %s:%d-%d — edit the replacement inside the fence, add comment text above it. :w %s, :q! aborts."):format(
             path,
             line1,
-            line2
+            line2,
+            draft and "queues it" or "posts"
           ),
           "Comment",
         },
@@ -76,12 +78,13 @@ function M.suggest_at(line1, line2)
       -- Cleared optimistically so :wq works; posting happens async below.
       vim.bo[buf].modified = false
       util.async(function()
-        local err = require("glab-review.inline").post_inline(iid, path, line2, body, diff_refs)
+        local inline = require("glab-review.inline")
+        local err = inline.post_inline(iid, path, line2, body, diff_refs, draft)
         if err then
           util.err("failed to post suggestion: " .. err)
           return
         end
-        util.notify("suggestion posted")
+        util.notify(draft and "suggestion queued (pending)" or "suggestion posted")
         if vim.api.nvim_buf_is_valid(buf) then
           pcall(vim.api.nvim_buf_delete, buf, { force = true })
         end

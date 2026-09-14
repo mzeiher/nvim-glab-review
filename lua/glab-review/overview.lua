@@ -74,7 +74,23 @@ end
 -- ---------------------------------------------------------------------------
 
 local bufnr = nil
+-- Extmarks, not line numbers: the buffer is editable, and an edit anywhere
+-- above the pending section would otherwise point a discard at another draft.
+local draft_ns = vim.api.nvim_create_namespace("glab-review-overview-drafts")
 local ctx = nil -- { iid, orig_description, thread_line = {id->lnum}, thread_note = {id->note_id}, line_owner = {lnum->{discussion_id,note_id}} }
+
+-- Where a pending draft will land once published.
+local function draft_label(d)
+  local line, _, path = state.locate(d.position)
+  local at = (path and line) and ("%s:%d"):format(path, line) or nil
+  if d.discussion_id then
+    if at then
+      return ("reply to %s"):format(at)
+    end
+    return ("reply to thread %s"):format(d.discussion_id:sub(1, 8))
+  end
+  return at or "(general)"
+end
 
 local function render(mr, lines_out, c)
   local L = {}
@@ -137,6 +153,25 @@ local function render(mr, lines_out, c)
     end
   end
 
+  -- Pending drafts are informational: they sit outside every region marker, so
+  -- `M.parse` skips them and `:w` cannot edit them. `:GlabReviewDiscard` removes
+  -- the one under the cursor.
+  local drafts = state.drafts()
+  if #drafts > 0 then
+    push(("## Pending review (%d)"):format(#drafts))
+    push("")
+    for _, d in ipairs(drafts) do
+      c.draft_owner[push(("- %s"):format(draft_label(d)))] = d.id
+      for _, bl in ipairs(vim.split(d.note or "", "\n", { plain = true })) do
+        c.draft_owner[push("  " .. bl)] = d.id
+      end
+      if d.resolve_discussion then
+        c.draft_owner[push("  ✎ resolves on publish")] = d.id
+      end
+      push("")
+    end
+  end
+
   push("## New comment")
   push("")
   push(NEW_START)
@@ -193,12 +228,18 @@ end
 
 local function do_render()
   local cur = state.get()
-  ctx = { iid = cur.mr.iid, thread_line = {}, thread_note = {}, line_owner = {} }
+  ctx = { iid = cur.mr.iid, thread_line = {}, thread_note = {}, line_owner = {}, draft_owner = {} }
   local lines = {}
   render(cur.mr, lines, ctx)
   vim.bo[bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   vim.bo[bufnr].modified = false
+
+  vim.api.nvim_buf_clear_namespace(bufnr, draft_ns, 0, -1)
+  ctx.draft_mark = {}
+  for lnum, id in pairs(ctx.draft_owner) do
+    ctx.draft_mark[vim.api.nvim_buf_set_extmark(bufnr, draft_ns, lnum - 1, 0, {})] = id
+  end
 end
 
 --- Open (or focus) the overview buffer. Re-renders from state unless the buffer
@@ -254,6 +295,40 @@ function M.discussion_at_cursor()
   return ctx.line_owner[lnum]
 end
 
+--- If the cursor is in the overview buffer over a pending draft, its id.
+function M.draft_at_cursor()
+  if not bufnr or vim.api.nvim_get_current_buf() ~= bufnr or not ctx then
+    return nil
+  end
+  local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, draft_ns, { row, 0 }, { row, -1 }, {})) do
+    local id = ctx.draft_mark[m[1]]
+    if id then
+      return id
+    end
+  end
+  return nil
+end
+
+--- Forget drafts that no longer exist. A re-render would do it, but `M.refresh`
+--- leaves a buffer with unsaved edits alone, and a discarded draft must stop
+--- answering to the cursor either way.
+function M.forget_drafts(ids)
+  if not bufnr or not ctx or not ctx.draft_mark then
+    return
+  end
+  local gone = {}
+  for _, id in ipairs(ids) do
+    gone[id] = true
+  end
+  for mark, id in pairs(ctx.draft_mark) do
+    if gone[id] then
+      ctx.draft_mark[mark] = nil
+      pcall(vim.api.nvim_buf_del_extmark, bufnr, draft_ns, mark)
+    end
+  end
+end
+
 --- BufWriteCmd handler: diff editable regions against the rendered state and
 --- push changes. Marks the buffer unmodified immediately so `:w` succeeds.
 function M.save()
@@ -275,14 +350,17 @@ function M.save()
   end
   for _, r in ipairs(parsed.replies) do
     local body, metas = reactions.extract_metas(r.body)
-    if body ~= "" or #metas > 0 then
-      table.insert(jobs, { kind = "reply", id = r.id, body = body, metas = metas })
+    -- `:w` takes no bang, so `/draft` and `/post` stand in for one.
+    local plan = reactions.plan(body, metas, state.draft_mode())
+    if plan.actionable then
+      table.insert(jobs, { kind = "reply", id = r.id, body = body, metas = metas, plan = plan })
     end
   end
   if parsed.new then
-    local body = reactions.extract_metas(parsed.new.body)
+    local body, metas = reactions.extract_metas(parsed.new.body)
     if body ~= "" then
-      table.insert(jobs, { kind = "new", body = body })
+      local plan = reactions.plan(body, metas, state.draft_mode())
+      table.insert(jobs, { kind = "new", body = body, plan = plan })
     end
   end
 
@@ -300,24 +378,30 @@ function M.save()
           table.insert(errors, err)
         end
       elseif job.kind == "reply" then
+        -- A drafted reply carries its resolve with it, so the thread settles
+        -- when the review is published rather than now.
+        local carried = job.plan.staged
         if job.body ~= "" then
-          local err = gitlab.reply(iid, job.id, job.body)
+          local err = gitlab.reply(iid, job.id, job.body, job.plan.draft, job.plan.staged)
           if err then
             table.insert(errors, err)
+            carried = false
           end
         end
         for _, meta in ipairs(job.metas) do
-          local err = reactions.apply_meta(meta, {
-            iid = iid,
-            discussion_id = job.id,
-            note_id = saved_ctx.thread_note[job.id],
-          })
-          if err then
-            table.insert(errors, err)
+          if not (carried and meta.resolve == true) then
+            local err = reactions.apply_meta(meta, {
+              iid = iid,
+              discussion_id = job.id,
+              note_id = saved_ctx.thread_note[job.id],
+            })
+            if err then
+              table.insert(errors, err)
+            end
           end
         end
       elseif job.kind == "new" then
-        local err = gitlab.create_discussion(iid, job.body)
+        local err = gitlab.create_discussion(iid, job.body, job.plan.draft)
         if err then
           table.insert(errors, err)
         end
@@ -327,7 +411,11 @@ function M.save()
     if #errors > 0 then
       util.err("save completed with errors: " .. table.concat(errors, "; "))
     else
-      util.notify(("pushed %d change(s)"):format(#jobs))
+      local queued = #vim.tbl_filter(function(j)
+        return j.plan and j.plan.draft and j.body ~= ""
+      end, jobs)
+      local extra = queued > 0 and (" — %d queued"):format(queued) or ""
+      util.notify(("pushed %d change(s)%s"):format(#jobs, extra))
     end
     require("glab-review").reload()
   end)()

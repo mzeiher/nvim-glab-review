@@ -58,9 +58,18 @@ text with a gutter sign, just like diagnostics.
   suggestion (` ```suggestion ` block) the author can apply with one click;
   the replacement is edited in a scratch buffer and posted on `:w`
   (`:GlabReviewSuggest`).
+- **Pending reviews** — new comments queue as GitLab draft notes instead of
+  going out one at a time, exactly like "Start a review" in the web UI; they
+  live on the server, so they survive a restart and show up in the browser as
+  the same pending review. A bang inverts it for one command
+  (`:GlabReviewComment!` posts straight through), `:GlabReviewToggleDraft`
+  flips the mode, and `:GlabReviewDiscard` throws one away. A `/resolve` on a
+  drafted reply in the overview is staged with it.
 - **Submit** — hand the MR back with a verdict: approve (tied to the reviewed
   head commit), request changes, or a plain comment — plus unapprove to take
-  an approval back (`:GlabReviewSubmit`).
+  an approval back. Anything still pending is published first, with the submit
+  comment attached as the review's summary note; unapproving is the exception
+  and leaves drafts pending (`:GlabReviewSubmit`).
 
 ## Requirements
 
@@ -115,6 +124,8 @@ commands and keys:
     { "<leader>gmx", "<cmd>GlabReviewResolve<cr>",      desc = "glab: resolve/unresolve" },
     { "<leader>gmS", "<cmd>GlabReviewSuggest<cr>",      desc = "glab: suggest change" },
     { "<leader>gma", "<cmd>GlabReviewSubmit<cr>",       desc = "glab: submit review verdict" },
+    { "<leader>gmP", "<cmd>GlabReviewToggleDraft<cr>",  desc = "glab: toggle drafting" },
+    { "<leader>gmX", "<cmd>GlabReviewDiscard<cr>",      desc = "glab: discard pending comment" },
     { "<leader>gmS", "<cmd>GlabReviewSuggest<cr>", mode = "x", desc = "glab: suggest for selection" },
     { "<leader>gmn", "<cmd>GlabReviewComment<cr>", mode = "x", desc = "glab: comment on selection" },
   },
@@ -157,11 +168,13 @@ field is needed. Pass a table to override any default (see
 | `:GlabReviewComments` | `<leader>gmc` | Pick / jump to any comment |
 | `:GlabReviewChanged` | `<leader>gmf` | Pick changed files: open or send to quickfix |
 | `:GlabReviewReact` | `<leader>gmr` | React to the comment under the cursor |
-| `:GlabReviewComment` | `<leader>gmn` | Create a new comment on the current line / Visual selection |
-| `:GlabReviewReply` | `<leader>gmR` | Reply to the thread under the cursor |
+| `:GlabReviewComment[!]` | `<leader>gmn` | Create a new comment on the current line / Visual selection (`!` inverts drafting) |
+| `:GlabReviewReply[!]` | `<leader>gmR` | Reply to the thread under the cursor (`!` inverts drafting) |
 | `:GlabReviewResolve` | `<leader>gmx` | Toggle resolved state of the discussion under the cursor |
-| `:GlabReviewSuggest` | `<leader>gmS` | Suggest a code change for the current line / Visual selection |
-| `:GlabReviewSubmit` | `<leader>gma` | Submit a review verdict: approve, request changes, or comment |
+| `:GlabReviewSuggest[!]` | `<leader>gmS` | Suggest a code change for the current line / Visual selection (`!` inverts drafting) |
+| `:GlabReviewSubmit` | `<leader>gma` | Publish anything pending, then submit a verdict: approve, request changes, or comment |
+| `:GlabReviewToggleDraft` | `<leader>gmP` | Toggle whether new comments queue as pending drafts |
+| `:GlabReviewDiscard[!]` | `<leader>gmX` | Discard the pending comment at the cursor (`!` discards all) |
 
 ### The overview buffer
 
@@ -177,6 +190,10 @@ three kinds of region; everything else is read-only context:
 - **Reply** — type under a thread's `reply` marker to post a reply to that
   thread.
 - **New comment** — type under the `New comment` section to open a new thread.
+
+While drafting is on, a `Pending review` section lists everything queued and
+where it will land. It is informational: `:w` ignores it, and drafts are not
+editable there — discard one with `:GlabReviewDiscard` and write it again.
 
 Save with `:w`. The plugin diffs the editable regions against what it rendered
 and only pushes what changed, then re-syncs. Existing note bodies are read-only
@@ -195,6 +212,13 @@ and dispatched as actions:
 | `/react-eyes` | Award 👀 (`eyes`) |
 | `/resolve` | Resolve the thread |
 | `/unresolve` | Unresolve the thread |
+| `/draft` | Queue this block as a pending draft |
+| `/post` | Post this block now, even while drafting |
+
+The `:GlabReviewReply` and `:GlabReviewComment` prompts take them too and strip
+every one from the body — several are live GitLab quick actions, so a `/draft`
+reaching the note would mark the MR itself a draft. A brand-new comment has no
+thread behind it, so only `/draft` and `/post` do anything there.
 
 For example, replying with:
 
@@ -206,6 +230,12 @@ Looks good to me.
 
 posts "Looks good to me.", awards a checkmark, and resolves the thread.
 
+`/draft` and `/post` stand in for a command's bang, which `:w` cannot express.
+On a drafted reply, a `/resolve` alongside reply text is staged with the draft:
+the thread settles when the review is published, not when you save. With no
+text to carry it — including at the single-line `:GlabReviewReply`
+prompt — it resolves right away.
+
 ## Configuration
 
 Defaults (override any subset):
@@ -214,6 +244,7 @@ Defaults (override any subset):
 require("glab-review").setup({
   glab_cmd = "glab",
   hide_resolved = false,         -- start with resolved threads hidden
+  draft = true,                  -- queue new comments as pending drafts
   overview = {
     -- "vsplit" | "split" | "tab" | "current"
     open = "vsplit",
@@ -228,6 +259,8 @@ require("glab-review").setup({
     ["/react-eyes"]  = { award = "eyes" },
     ["/resolve"]     = { resolve = true },
     ["/unresolve"]   = { resolve = false },
+    ["/draft"]       = { draft = true },   -- queue this block
+    ["/post"]        = { draft = false },  -- post it now
   },
   inline = {
     virt_text_default = true,     -- show comment bodies on load
@@ -235,6 +268,9 @@ require("glab-review").setup({
     sign_hl = "DiagnosticSignInfo",
     virt_hl = "Comment",
     author_hl = "DiagnosticInfo",
+    draft_sign_text = "▐",       -- pending drafts, marked apart
+    draft_sign_hl = "DiagnosticSignWarn",
+    draft_hl = "DiagnosticWarn",
   },
   changes = {
     enabled = true,              -- show change hints on load
@@ -268,6 +304,8 @@ require("glab-review").setup({
     resolve = "<leader>gmx",
     suggest = "<leader>gmS",
     submit = "<leader>gma",
+    toggle_draft = "<leader>gmP",
+    discard = "<leader>gmX",
   },
 })
 ```

@@ -87,6 +87,39 @@ check("two metas extracted", #metas == 2)
 check("award meta", metas[1].award == "white_check_mark")
 check("resolve meta", metas[2].resolve == true)
 
+-- 5. The pending-review section sits outside every region marker, so nothing in
+-- it can be mistaken for user input on save.
+local doc3 = table.concat({
+  "<!-- glab-review:description -->",
+  "desc",
+  "<!-- glab-review:end -->",
+  "",
+  "## Pending review (2)",
+  "",
+  "- lua/a.lua:12 — pending body text",
+  "  a draft that mentions /resolve and <!-- glab-review:new --> markers",
+  "  ✎ resolves on publish",
+  "",
+  "- (general) — another pending one",
+  "",
+  "## New comment",
+  "",
+  "<!-- glab-review:new -->",
+  "actually new",
+  "<!-- glab-review:end -->",
+}, "\n")
+
+local r3 = overview.parse(lines(doc3))
+check("pending text never reaches the new region", r3.new and r3.new.body == "actually new")
+check("pending text never reaches the description", r3.description.body == "desc")
+check("pending section makes no replies", #r3.replies == 0)
+
+-- 6. `/draft` and `/post` stand in for a command's bang inside the buffer.
+local b3, m3 = reactions.extract_metas("Queue this\n/draft")
+check("draft meta body cleaned", b3 == "Queue this")
+check("draft meta parsed", #m3 == 1 and m3[1].draft == true)
+check("post meta parsed", (select(2, reactions.extract_metas("x\n/post")))[1].draft == false)
+
 if failures > 0 then
   io.write(("\n%d failure(s)\n"):format(failures))
   vim.cmd("cquit 1")
